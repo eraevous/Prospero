@@ -51,8 +51,9 @@ from .sources import Source, SourceError
 KINDS = ("agent addition", "transformation", "interpretation")
 
 # Text between straight or curly double quotation marks. Single quotes are left
-# alone because apostrophes make them ambiguous in ordinary prose.
-QUOTE_RE = re.compile(r'"([^"\n]+)"|“([^”\n]+)”')
+# alone because apostrophes make them ambiguous in ordinary prose. A quotation
+# may run across line breaks, as quotations in prose often do.
+QUOTE_RE = re.compile(r'"([^"]+)"|“([^”]+)”')
 
 
 def sha256(text: str) -> str:
@@ -106,6 +107,21 @@ def _find_span(haystack: str, needle: str) -> tuple[int, int] | None:
         return None
     start = haystack.find(needle)
     return None if start < 0 else (start, start + len(needle))
+
+
+def _covered(span: tuple[int, int], labelled: list[tuple[int, int]]) -> bool:
+    """True when every character of ``span`` lies inside the labelled spans.
+
+    Full coverage, not mere overlap: a label naming one letter of a word must
+    not vouch for the rest of that word.
+    """
+    position = span[0]
+    for start, end in sorted(labelled):
+        if start <= position < end:
+            position = end
+        if position >= span[1]:
+            return True
+    return False
 
 
 def _overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:
@@ -178,17 +194,21 @@ def build_packet(source: Source, original_name: str, edition_name: str, spec: di
             "original_line": line_of(original, orig_span[0]) if orig_span else None,
         })
 
-    # Declared quotations count as labelled: putting the original's words in
-    # quotation marks is itself a change, and the quotations check below makes
-    # sure the words inside are verbatim.
+    # Declared quotations that actually appear in the edition count as
+    # labelled: putting the original's words in quotation marks is itself a
+    # change, and the quotations check below makes sure the words inside are
+    # verbatim. A declaration with no quotation in the edition exempts nothing,
+    # so a stale entry can't hide a deletion.
     declared_texts = {raw.get("text", "") for raw in spec.get("quotations", [])}
-    quoted_spans = [(m.start(), m.end()) for m in QUOTE_RE.finditer(edition)
-                    if (m.group(1) or m.group(2)) in declared_texts]
+    present = [(m.start(), m.end(), m.group(1) or m.group(2)) for m in QUOTE_RE.finditer(edition)]
+    quoted_spans = [(start, end) for start, end, text in present if text in declared_texts]
+    present_texts = {text for _, _, text in present if text in declared_texts}
 
-    # Where declared quotations sit in the original, so the quotation marks
-    # added around them don't count as unlabelled edits on the original side.
+    # Where those quotations sit in the original, so the quotation marks added
+    # around them don't count as unlabelled edits on the original side.
     quoted_in_original = [span for raw in spec.get("quotations", [])
                           if (raw.get("source") or "original") == "original"
+                          and raw.get("text", "") in present_texts
                           for span in [_find_span(original, raw.get("text", ""))] if span]
 
     # Every difference must fall under some declared change, word by word and
@@ -198,11 +218,11 @@ def build_packet(source: Source, original_name: str, edition_name: str, spec: di
     labelled_edition = [s for _, _, s, _ in change_spans if s] + quoted_spans
     labelled_original = [s for _, _, _, s in change_spans if s] + quoted_in_original
     for diff in _differences(original, edition):
-        loose = [w for w in diff["edition_words"] if not any(_overlaps(w, s) for s in labelled_edition)]
+        loose = [w for w in diff["edition_words"] if not _covered(w, labelled_edition)]
         if loose:
             label_problems.append(f"unlabelled change at edition line {line_of(edition, loose[0][0])}: "
                                   f"{edition[loose[0][0]:loose[-1][1]]!r}")
-        cut = [w for w in diff["original_words"] if not any(_overlaps(w, s) for s in labelled_original)]
+        cut = [w for w in diff["original_words"] if not _covered(w, labelled_original)]
         if cut:
             label_problems.append(f"unlabelled change to original line {line_of(original, cut[0][0])}: "
                                   f"{original[cut[0][0]:cut[-1][1]]!r} (name it as original_text)")

@@ -67,9 +67,17 @@ def write_packet(packet: Packet, out_dir: str | Path, stem: str) -> tuple[Path, 
     Existing files are not overwritten: a packet is a record of what was
     proposed, and a new proposal gets a new stem.
     """
+    # A stem is a bare file name. A separator, an absolute path or ".." could
+    # carry the packet (and the original inside it) out of the checked folder,
+    # for instance into this repository.
+    if stem in ("", ".", "..") or "/" in stem or "\\" in stem or Path(stem).name != stem:
+        raise RecordError(f"stem must be a plain file name, not {stem!r}")
     folder = _outside_repo(Path(out_dir))
-    folder.mkdir(parents=True, exist_ok=True)
     json_path, md_path = folder / f"{stem}.packet.json", folder / f"{stem}.packet.md"
+    for path in (json_path, md_path):
+        if path.resolve().parent != folder:
+            raise RecordError(f"{path.name} would land outside {folder}")
+    folder.mkdir(parents=True, exist_ok=True)
     for path in (json_path, md_path):
         if path.exists():
             raise RecordError(f"{path.name} already exists; use a new stem")

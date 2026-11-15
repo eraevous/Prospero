@@ -133,6 +133,31 @@ class BuildTest(PacketTestCase):
         self.assertFalse(check.ok)
         self.assertTrue(any("'hand.'" in p for p in check.problems))
 
+    def test_label_must_cover_the_whole_changed_word(self):
+        # Codex review on #6: a one-letter label vouched for a whole word.
+        self.write("original.txt", "The cat slept.\n")
+        spec = {"changes": [{"id": "c1", "kind": "transformation", "rationale": "x",
+                             "original_text": "a", "edition_text": "o"}]}
+        check = self.check(self.build(spec, "The dog slept.\n"), "changes-labelled")
+        self.assertFalse(check.ok)
+
+    def test_stale_quotation_declaration_does_not_hide_a_deletion(self):
+        # Codex review on #6: a declared quotation absent from the edition
+        # exempted its source span from the deletion check.
+        self.write("original.txt", "Keep this. Remove this.\n")
+        spec = {"changes": [], "quotations": [{"text": "Remove this.", "source": "original"}]}
+        check = self.check(self.build(spec, "Keep this.\n"), "changes-labelled")
+        self.assertFalse(check.ok)
+
+    def test_quotation_across_a_line_break_is_checked(self):
+        # Codex review on #6: a multi-line quotation was invisible to the checks.
+        self.write("original.txt", "A calm night.\n")
+        spec = {"changes": [{"id": "c1", "kind": "interpretation", "rationale": "mood",
+                             "original_text": "A calm night.", "edition_text": "“A storm\nwas coming.”"}]}
+        packet = self.build(spec, "“A storm\nwas coming.”\n")
+        self.assertFalse(self.check(packet, "quotations-resolve").ok)
+        self.assertFalse(self.check(packet, "no-interpretation-as-quotation").ok)
+
     def test_unknown_kind_or_missing_rationale_fails(self):
         spec = dict(SPEC, changes=[dict(SPEC["changes"][0], kind="polish"),
                                    dict(SPEC["changes"][1], rationale="")])
@@ -197,6 +222,14 @@ class RecordTest(PacketTestCase):
         self.assertIn("Marta, original.txt line 2", md_path.read_text(encoding="utf-8"))
         with self.assertRaises(RecordError):
             write_packet(self.build(), self.home / "packets", "lamp")
+
+    def test_stem_must_be_a_plain_file_name(self):
+        # Codex review on #6: an absolute or ../ stem escaped the checked folder.
+        packet = self.build()
+        for stem in (str(REPO_ROOT / "leak"), "../leak", "sub/leak", "..", ""):
+            with self.assertRaises(RecordError, msg=stem):
+                write_packet(packet, self.home / "packets", stem)
+        self.assertFalse((REPO_ROOT / "leak.packet.json").exists())
 
     def test_refuses_to_write_inside_the_repository(self):
         with self.assertRaises(RecordError):
