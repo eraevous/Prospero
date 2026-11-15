@@ -1,0 +1,44 @@
+{
+  "manifest": "kairos.tool-manifest.provisional",
+  "note": "DEC-177 requires every new tool to declare its sockets; the manifest schema itself is still with R&D, so this file is provisional and will be migrated when a schema is adopted.",
+  "tool": "prospero.packet",
+  "version": "0.1.0",
+  "purpose": "Build an editorial packet (original + proposed edition + labelled changes + resolved quotations) and record accept/reject/revise decisions.",
+  "sockets": {
+    "information_in": [
+      {
+        "id": "texts",
+        "kind": "folder",
+        "implementation": "prospero/packet/sources.py:FolderSource",
+        "location": "content folder from --home or $PROSPERO_HOME; no default",
+        "reads": ["original", "edition", "spec (JSON)", "named quotation sources"],
+        "planned": "MCP information-in resource (DEC-177) behind the same Source interface"
+      }
+    ],
+    "information_out": [
+      {
+        "id": "packets",
+        "kind": "folder",
+        "location": "<content folder>/packets/",
+        "writes": ["<stem>.packet.json", "<stem>.packet.md"],
+        "refuses": "any folder inside this repository"
+      },
+      {
+        "id": "decisions",
+        "kind": "append-only JSONL",
+        "location": "<content folder>/decisions.jsonl"
+      }
+    ],
+    "services": [],
+    "communication": [],
+    "know_how": [],
+    "authority": {
+      "needs": ["read and write the content folder the caller names"],
+      "grants": [],
+      "note": "DEC-185 authority socket; protocol undecided. Decisions are recorded with a typed decider name, which is not authenticated."
+    }
+  },
+  "network": false,
+  "model_calls": false,
+  "dependencies": "Python standard library only"
+}

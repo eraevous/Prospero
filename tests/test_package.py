@@ -1,7 +1,7 @@
 """Smoke test: the package imports and declares a version.
 
-There are no features to test yet. This test exists so CI has something real to
-run, and so the first feature PR adds tests beside an already-working harness.
+The package imports and its version is a dotted string. Feature tests live
+beside this one (test_packet.py).
 """
 
 import unittest
