@@ -12,6 +12,7 @@ survives and can be read back in order.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -79,11 +80,37 @@ def write_packet(packet: Packet, out_dir: str | Path, stem: str) -> tuple[Path, 
             raise RecordError(f"{path.name} would land outside {folder}")
     folder.mkdir(parents=True, exist_ok=True)
     for path in (json_path, md_path):
-        if path.exists():
+        # lexists, not exists: a dangling symlink would otherwise be followed.
+        if os.path.lexists(path):
             raise RecordError(f"{path.name} already exists; use a new stem")
-    json_path.write_text(json.dumps(packet.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    md_path.write_text(render_markdown(packet), encoding="utf-8")
+    # Mode "x" creates the file or fails; it never follows a symlink planted
+    # between the check above and the write.
+    try:
+        with open(json_path, "x", encoding="utf-8") as handle:
+            handle.write(json.dumps(packet.to_dict(), ensure_ascii=False, indent=2) + "\n")
+        with open(md_path, "x", encoding="utf-8") as handle:
+            handle.write(render_markdown(packet))
+    except FileExistsError as error:
+        raise RecordError(f"{Path(error.filename).name} already exists; use a new stem") from error
     return json_path, md_path
+
+
+def _open_log(folder: Path, original: Path | None):
+    """Open the decision log for appending, refusing a symlink or an alias.
+
+    A symlinked decisions.jsonl could point at the original (so even a
+    ``reject`` would change it) or into this repository. The log must be a
+    regular file directly in ``folder`` and must not be the original.
+    """
+    log = folder / DECISION_LOG
+    if log.is_symlink():
+        raise RecordError(f"{DECISION_LOG} is a symlink; refusing to append through it")
+    if log.exists() and (not log.is_file() or (original is not None and os.path.samefile(log, original))):
+        raise RecordError(f"{DECISION_LOG} is not a separate regular file")
+    if log.resolve().parent != folder:
+        raise RecordError(f"{DECISION_LOG} would land outside {folder}")
+    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    return os.fdopen(os.open(log, flags, 0o644), "a", encoding="utf-8")
 
 
 def record_decision(log_dir: str | Path, packet_dict: dict, source: Source, decision: str,
@@ -116,6 +143,9 @@ def record_decision(log_dir: str | Path, packet_dict: dict, source: Source, deci
     }
     folder = _outside_repo(Path(log_dir))
     folder.mkdir(parents=True, exist_ok=True)
-    with open(folder / DECISION_LOG, "a", encoding="utf-8") as handle:
+    # Sources that live on disk can say where the original is, so the log can
+    # be checked not to be the original under another name.
+    original_path = source.path_of(original["name"]) if hasattr(source, "path_of") else None
+    with _open_log(folder, original_path) as handle:
         handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
     return entry

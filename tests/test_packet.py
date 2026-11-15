@@ -231,6 +231,43 @@ class RecordTest(PacketTestCase):
                 write_packet(packet, self.home / "packets", stem)
         self.assertFalse((REPO_ROOT / "leak.packet.json").exists())
 
+    def symlink(self, link, target):
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError) as error:  # e.g. Windows without privilege
+            self.skipTest(f"symlinks unavailable: {error}")
+
+    def test_decision_log_symlinked_to_the_original_is_refused(self):
+        # Codex review on #6: a symlinked decisions.jsonl let `reject` append to the original.
+        before = (self.home / "original.txt").read_bytes()
+        self.symlink(self.home / "decisions.jsonl", self.home / "original.txt")
+        with self.assertRaises(RecordError):
+            record_decision(self.home, self.build().to_dict(), self.source, "reject", "zach")
+        self.assertEqual((self.home / "original.txt").read_bytes(), before)
+
+    def test_decision_log_symlinked_elsewhere_is_refused(self):
+        elsewhere = Path(self._tmp.name) / "elsewhere.jsonl"
+        self.symlink(self.home / "decisions.jsonl", elsewhere)
+        with self.assertRaises(RecordError):
+            record_decision(self.home, self.build().to_dict(), self.source, "accept", "zach")
+        self.assertFalse(elsewhere.exists())
+
+    def test_decision_log_hard_linked_to_the_original_is_refused(self):
+        try:
+            os.link(self.home / "original.txt", self.home / "decisions.jsonl")
+        except OSError as error:
+            self.skipTest(f"hard links unavailable: {error}")
+        with self.assertRaises(RecordError):
+            record_decision(self.home, self.build().to_dict(), self.source, "reject", "zach")
+
+    def test_packet_never_written_through_a_dangling_symlink(self):
+        (self.home / "packets").mkdir()
+        target = Path(self._tmp.name) / "leak.json"
+        self.symlink(self.home / "packets" / "lamp.packet.json", target)
+        with self.assertRaises(RecordError):
+            write_packet(self.build(), self.home / "packets", "lamp")
+        self.assertFalse(target.exists())
+
     def test_refuses_to_write_inside_the_repository(self):
         with self.assertRaises(RecordError):
             write_packet(self.build(), REPO_ROOT / "packets", "lamp")
