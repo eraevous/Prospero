@@ -1,7 +1,7 @@
 # Prospero
 
-**Status:** activated 2026-11-09; first increment being defined with Zach.
-This repository holds only a foundation (licence, purpose records, tests, CI). It has no features yet.
+**Status:** activated 2026-11-09. First increment: the editorial-packet mechanics (`prospero/packet/`), tested on
+invented text only. Running it on Zach's own writing (the pilot) is his call and happens outside this repository.
 
 ## What it is for
 
@@ -24,6 +24,28 @@ discussion with Zach, not product requirements, and nothing here should be built
 - Zach: later versions remixed by professional artists (bonsai pruning, a classroom, a tutor, an exercise generator).
 - Zach: the papers that define Cognitive Augmentation are to be written with it.
 - Kate (an assistant in the project, not Zach): "cognitive augmentation for artists", not replacement.
+
+## Editorial packets (first increment)
+
+An editorial packet puts an original text beside a proposed alternate edition, so a change can be accepted,
+rejected or revised without losing the original. The tool checks that:
+
+- the original is unchanged (its SHA-256 is recorded and re-checked before any decision);
+- every quotation in the edition is declared and appears word for word in its source, with a locator;
+- every difference is a declared change labelled `agent addition`, `transformation` or `interpretation`, with a rationale;
+- an interpretation never appears inside quotation marks.
+
+Texts are read from a content folder outside the repository (`--home` or `$PROSPERO_HOME`; there is no default), and
+packets and decisions are written there too. The tool refuses to write inside this repository.
+
+```bash
+python3 -m prospero.packet --home ~/prospero-content build original.md edition.md spec.json --stem first
+python3 -m prospero.packet --home ~/prospero-content decide packets/first.packet.json reject --by zach --note "keep the original"
+```
+
+`spec.json` lists the changes and quotations; its format is described at the top of
+[prospero/packet/build.py](prospero/packet/build.py), and [tests/test_packet.py](tests/test_packet.py) has worked
+examples. The tool's sockets (DEC-177) are declared in [prospero/packet/manifest.json](prospero/packet/manifest.json).
 
 ## Name
 
