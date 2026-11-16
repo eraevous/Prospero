@@ -1,7 +1,7 @@
 # Prospero
 
-**Status:** activated 2026-11-09. First increment: the editorial-packet mechanics (`prospero/packet/`), tested on
-invented text only. Running it on Zach's own writing (the pilot) is his call and happens outside this repository.
+**Status:** activated 2026-11-09. Editorial-packet mechanics (`prospero/packet/`): packets and decisions (first
+increment), revisions and history (second), tested on invented text only. Running it on Zach's own writing (the pilot) is his call and happens outside this repository.
 
 ## What it is for
 
@@ -25,7 +25,7 @@ discussion with Zach, not product requirements, and nothing here should be built
 - Zach: the papers that define Cognitive Augmentation are to be written with it.
 - Kate (an assistant in the project, not Zach): "cognitive augmentation for artists", not replacement.
 
-## Editorial packets (first increment)
+## Editorial packets
 
 An editorial packet puts an original text beside a proposed alternate edition, so a change can be accepted,
 rejected or revised without losing the original. The tool checks that:
@@ -42,6 +42,30 @@ packets and decisions are written there too. The tool refuses to write inside th
 python3 -m prospero.packet --home ~/prospero-content build original.md edition.md spec.json --stem first
 python3 -m prospero.packet --home ~/prospero-content decide packets/first.packet.json reject --by zach --note "keep the original"
 ```
+
+### Revisions and history (second increment)
+
+A revision is a new packet built with `--parent`: it names the packet it revises by path and by the SHA-256 of that
+file, and building it never changes the parent or any recorded decision. `history` lists every packet for one
+original, which revises which, and every decision in the order it was recorded.
+
+```bash
+python3 -m prospero.packet --home ~/prospero-content build original.md edition2.md spec2.json --stem second --parent packets/first.packet.json
+python3 -m prospero.packet --home ~/prospero-content history original.md
+```
+
+History reports what was recorded and stops there. It does not decide which edition is "current": two revisions of
+one packet are shown side by side, and two acceptances are both listed. Whether an accepted edition can be
+superseded, what conflicting decisions mean and whether branching is allowed are open questions for Zach. History
+fails closed: a missing or edited parent, a parent for another original, a loop, a corrupt packet or log line, or an
+original whose bytes have changed is reported as a problem (exit 1), never skipped.
+
+### What the checks don't catch
+
+The checks are mechanical. They catch unlabelled differences (including punctuation-only edits and reordering),
+quotations that aren't verbatim, and interpretations inside double quotation marks. They don't judge attribution
+outside double quotation marks: text in single quotes, and reported speech or thought ("Marta thought…"), only has to
+be labelled as a change. [tests/test_adversarial.py](tests/test_adversarial.py) pins these cases.
 
 `spec.json` lists the changes and quotations; its format is described at the top of
 [prospero/packet/build.py](prospero/packet/build.py), and [tests/test_packet.py](tests/test_packet.py) has worked

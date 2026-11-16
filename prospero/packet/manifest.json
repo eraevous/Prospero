@@ -2,8 +2,8 @@
   "manifest": "kairos.tool-manifest.provisional",
   "note": "DEC-177 requires every new tool to declare its sockets; the manifest schema itself is still with R&D, so this file is provisional and will be migrated when a schema is adopted.",
   "tool": "prospero.packet",
-  "version": "0.1.0",
-  "purpose": "Build an editorial packet (original + proposed edition + labelled changes + resolved quotations) and record accept/reject/revise decisions.",
+  "version": "0.2.0",
+  "purpose": "Build an editorial packet (original + proposed edition + labelled changes + resolved quotations) record accept/reject/revise decisions, link revisions to their parent packet and report the history of one original.",
   "sockets": {
     "information_in": [
       {
@@ -27,6 +27,13 @@
         "id": "decisions",
         "kind": "append-only JSONL",
         "location": "<content folder>/decisions.jsonl"
+      },
+      {
+        "id": "history",
+        "kind": "report (stdout)",
+        "implementation": "prospero/packet/lineage.py:history",
+        "reads": ["<content folder>/packets/*.packet.json", "<content folder>/decisions.jsonl"],
+        "writes": []
       }
     ],
     "services": [],

@@ -61,6 +61,24 @@ class FolderSource(Source):
             raise SourceError(f"{name!r} not found in source {self.name!r}")
         return candidate
 
+    def names(self, folder: str, pattern: str) -> list[str]:
+        """Names (relative to the source, ``/``-separated) of files matching
+        ``pattern`` directly in ``folder``, sorted. Each passes ``path_of``, so a
+        symlink pointing out of the source is left out, as ``read`` would refuse it.
+        An absent folder has no names."""
+        base = self.root / folder
+        if not base.is_dir():
+            return []
+        found = []
+        for path in sorted(base.glob(pattern)):
+            name = f"{folder}/{path.name}"
+            try:
+                self.path_of(name)
+            except SourceError:
+                continue
+            found.append(name)
+        return found
+
     def read(self, name: str) -> str:
         # newline="" keeps the bytes as they are (no \r\n translation), so the
         # hash of what we read matches the hash of the file on disk.

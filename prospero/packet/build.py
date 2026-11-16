@@ -84,6 +84,8 @@ class Packet:
     changes: list[dict]
     quotations: list[dict]
     checks: list[Check]
+    # A revision names its parent packet: {"name", "sha256"} (see lineage.py).
+    parent: dict | None = None
 
     @property
     def ok(self) -> bool:
@@ -98,6 +100,7 @@ class Packet:
             "quotations": self.quotations,
             "checks": [{"name": c.name, "ok": c.ok, "problems": c.problems} for c in self.checks],
             "ok": self.ok,
+            "parent": self.parent,
         }
 
 
@@ -157,11 +160,13 @@ def _differences(original: str, edition: str) -> list[dict]:
 
 
 def build_packet(source: Source, original_name: str, edition_name: str, spec: dict,
-                 edition_source: Source | None = None) -> Packet:
+                 edition_source: Source | None = None, parent: dict | None = None) -> Packet:
     """Read both texts, resolve the spec against them and run every check.
 
     ``edition_source`` defaults to ``source``; pass another when the edition is
-    kept apart from the originals.
+    kept apart from the originals. ``parent`` is the reference returned by
+    ``lineage.parent_ref`` when this packet revises an earlier one; it is only
+    stored, never used to change the parent.
     """
     edition_source = edition_source or source
     original = source.read(original_name)
@@ -286,4 +291,5 @@ def build_packet(source: Source, original_name: str, edition_name: str, spec: di
             Check("changes-labelled", not label_problems, label_problems),
             Check("no-interpretation-as-quotation", not interp_problems, interp_problems),
         ],
+        parent=parent,
     )
