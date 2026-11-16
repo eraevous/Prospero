@@ -260,6 +260,26 @@ class RecordTest(PacketTestCase):
         with self.assertRaises(RecordError):
             record_decision(self.home, self.build().to_dict(), self.source, "reject", "zach")
 
+    def test_decision_log_hard_linked_to_any_other_file_is_refused(self):
+        # Security follow-up to #6: the samefile check only caught a hard link to
+        # the original. A log hard-linked to any other file (the edition, another
+        # draft, a file in this repository) would have been appended to.
+        other = Path(self._tmp.name) / "other.txt"
+        other.write_text("someone else's file\n", encoding="utf-8")
+        try:
+            os.link(other, self.home / "decisions.jsonl")
+        except OSError as error:
+            self.skipTest(f"hard links unavailable: {error}")
+        with self.assertRaises(RecordError):
+            record_decision(self.home, self.build().to_dict(), self.source, "accept", "zach")
+        self.assertEqual(other.read_text(encoding="utf-8"), "someone else's file\n")
+
+    def test_existing_regular_decision_log_is_appended_to(self):
+        packet = self.build().to_dict()
+        (self.home / "decisions.jsonl").write_text("", encoding="utf-8")
+        record_decision(self.home, packet, self.source, "accept", "zach")
+        self.assertEqual(len((self.home / "decisions.jsonl").read_text(encoding="utf-8").splitlines()), 1)
+
     def test_packet_never_written_through_a_dangling_symlink(self):
         (self.home / "packets").mkdir()
         target = Path(self._tmp.name) / "leak.json"

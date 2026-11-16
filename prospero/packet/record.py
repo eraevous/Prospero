@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -99,8 +100,9 @@ def _open_log(folder: Path, original: Path | None):
     """Open the decision log for appending, refusing a symlink or an alias.
 
     A symlinked decisions.jsonl could point at the original (so even a
-    ``reject`` would change it) or into this repository. The log must be a
-    regular file directly in ``folder`` and must not be the original.
+    ``reject`` would change it) or into this repository; a hard-linked one
+    could alias any file. The log must be a regular file directly in
+    ``folder`` with exactly one link.
     """
     log = folder / DECISION_LOG
     if log.is_symlink():
@@ -110,7 +112,16 @@ def _open_log(folder: Path, original: Path | None):
     if log.resolve().parent != folder:
         raise RecordError(f"{DECISION_LOG} would land outside {folder}")
     flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-    return os.fdopen(os.open(log, flags, 0o644), "a", encoding="utf-8")
+    fd = os.open(log, flags, 0o644)
+    # Check the file actually opened, not the name: a log with a second hard
+    # link (to the edition, another draft or a file in this repository) would
+    # append into that file, and the samefile check above only catches the
+    # original. One link means the log is its own file.
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        os.close(fd)
+        raise RecordError(f"{DECISION_LOG} is not a separate regular file (it has another link)")
+    return os.fdopen(fd, "a", encoding="utf-8")
 
 
 def record_decision(log_dir: str | Path, packet_dict: dict, source: Source, decision: str,
