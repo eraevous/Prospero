@@ -1,8 +1,10 @@
-"""Command line: ``python3 -m prospero.packet build|decide``.
+"""Command line: ``python3 -m prospero.packet draft-spec|build|decide|history``.
 
 Every path is relative to the content folder (``--home`` or ``$PROSPERO_HOME``);
 the tool reads and writes nothing else.
 
+  draft-spec ORIGINAL EDITION --out SPEC.json
+          write a spec listing every difference, labels left blank for a person to fill
   build   ORIGINAL EDITION SPEC.json --stem NAME [--parent PACKET.json]
           write NAME.packet.json/.md under packets/; --parent makes it a revision
   decide  PACKET.json accept|reject|revise --by WHO [--note TEXT]   append to decisions.jsonl
@@ -20,6 +22,7 @@ import json
 import sys
 
 from .build import build_packet, sha256
+from .draft import draft_spec, write_spec
 from .lineage import LineageError, history, parent_ref, render_history
 from .record import DECISIONS, RecordError, record_decision, write_packet
 from .sources import FolderSource, SourceError, content_home
@@ -36,6 +39,10 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("spec")
     b.add_argument("--stem", required=True, help="file name stem for the packet")
     b.add_argument("--parent", help="the packet this one revises (path under the content folder)")
+    s = sub.add_parser("draft-spec", help="draft a spec: every difference listed, labels left blank")
+    s.add_argument("original")
+    s.add_argument("edition")
+    s.add_argument("--out", required=True, help="where to write the spec (path under the content folder)")
     d = sub.add_parser("decide", help="record accept, reject or revise")
     d.add_argument("packet")
     d.add_argument("decision", choices=DECISIONS)
@@ -48,6 +55,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         home = content_home(args.home)
         source = FolderSource(home)
+        if args.command == "draft-spec":
+            spec = draft_spec(source.read(args.original), source.read(args.edition))
+            target = (home / args.out).resolve()
+            if source.root not in target.parents:
+                raise SourceError(f"{args.out!r} is outside the content folder")
+            path = write_spec(spec, target)
+            blank = sum(1 for q in spec["quotations"] if not q["source"])
+            print(f"wrote {path.name}: {len(spec['changes'])} change(s) and {len(spec['quotations'])} "
+                  f"quotation(s); label every change{' and name ' + str(blank) + ' quotation source(s)' if blank else ''}"
+                  " before build")
+            return 0
         if args.command == "build":
             spec = json.loads(source.read(args.spec))
             # One spelling per original, so history finds every packet for it.

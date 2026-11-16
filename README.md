@@ -43,6 +43,24 @@ python3 -m prospero.packet --home ~/prospero-content build original.md edition.m
 python3 -m prospero.packet --home ~/prospero-content decide packets/first.packet.json reject --by zach --note "keep the original"
 ```
 
+### Drafting a spec (proposed)
+
+Writing `spec.json` by hand means finding every difference by eye. `draft-spec` finds them: it lists every difference
+between the original and the edition as a change, and every quotation in the edition, with the texts filled in and
+the judgement left blank (`"kind": null`, empty rationale). `build` refuses the draft until each change is labelled,
+because whether a change is an addition, a transformation or an interpretation, and why, is never the tool's call.
+
+```bash
+python3 -m prospero.packet --home ~/prospero-content draft-spec original.md edition.md --out spec.json
+# label each change in spec.json, then:
+python3 -m prospero.packet --home ~/prospero-content build original.md edition.md spec.json --stem first
+```
+
+Each change's text is widened a word at a time until its first occurrence is the changed place, since `build` finds
+declared text by first occurrence. Once every change is labelled, the draft passes `changes-labelled` by construction;
+[tests/test_draft.py](tests/test_draft.py) checks this for repeated words, deletions, reordering, punctuation-only
+edits and quotation marks.
+
 ### Revisions and history (second increment)
 
 A revision is a new packet built with `--parent`: it names the packet it revises by path and by the SHA-256 of that
