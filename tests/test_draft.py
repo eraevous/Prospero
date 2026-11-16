@@ -29,6 +29,8 @@ CASES = {
     "quotation marks only": ("She said the tide was early.\n", 'She said "the tide was early."\n'),
     "curly quotation and an addition": ("He said it was over.\n", "He said “it was over.” Then he left.\n"),
     "whole text replaced": ("one two three\n", "four five\n"),
+    "changes either side of a quotation": ("foo calm bar\n", 'new "calm" other\n'),
+    "two quotations, three changes": ("a x b y c\n", 'p "x" q "y" r\n'),
 }
 
 
@@ -81,6 +83,18 @@ class DraftTest(PacketTestCase):
         original, edition = '"calm" sad\n', '"calm" calm\n'
         (change,) = draft_spec(original, edition)["changes"]
         self.assertNotIn('"', change["edition_text"])
+        self.write("original.txt", original)
+        self.write("edition.txt", edition)
+        spec = labelled(draft_spec(original, edition), kind="interpretation")
+        packet = build_packet(self.source, "original.txt", "edition.txt", spec)
+        self.assertTrue(packet.ok, [c for c in packet.checks if not c.ok])
+
+    def test_changes_are_split_around_an_unchanged_quotation(self):
+        # Codex on #11: one change spanning the quotation can't be an interpretation.
+        original, edition = "foo calm bar\n", 'new "calm" other\n'
+        changes = draft_spec(original, edition)["changes"]
+        self.assertEqual([(c.get("original_text"), c["edition_text"]) for c in changes],
+                         [("foo", "new"), ("bar", "other")])
         self.write("original.txt", original)
         self.write("edition.txt", edition)
         spec = labelled(draft_spec(original, edition), kind="interpretation")

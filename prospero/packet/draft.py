@@ -91,6 +91,18 @@ def _unique_snippet(text: str, span: tuple[int, int],
     return start, end
 
 
+def _runs(words: list[tuple[int, int]], quotes: list[tuple[int, int]]) -> list[list[tuple[int, int]]]:
+    """Split changed words into runs at every quotation lying between two of
+    them, so a change never spans an unchanged quotation (Codex on #11)."""
+    runs: list[list[tuple[int, int]]] = []
+    for word in words:
+        if runs and not any(runs[-1][-1][1] <= qs and qe <= word[0] for qs, qe in quotes):
+            runs[-1].append(word)
+        else:
+            runs.append([word])
+    return runs
+
+
 def draft_spec(original: str, edition: str) -> dict:
     """A spec skeleton for ``edition`` against ``original``: every difference
     as an unlabelled change, every quotation declared."""
@@ -110,23 +122,30 @@ def draft_spec(original: str, edition: str) -> dict:
             quoted_edition.append((match.start(), match.end()))
             quoted_original.append(in_original)
 
+    all_quotes = [(m.start(), m.end()) for m in QUOTE_RE.finditer(edition)]
     changes = []
     for diff in _differences(original, edition):
         loose_ed = [w for w in diff["edition_words"] if not _covered(w, quoted_edition)]
         loose_orig = [w for w in diff["original_words"] if not _covered(w, quoted_original)]
         if not loose_ed and not loose_orig:
             continue  # only quotation marks were added; the quotation covers it
-        entry = {"id": f"c{len(changes) + 1}", "kind": None, "rationale": ""}
-        if loose_orig:
-            s, e = _unique_snippet(original, (loose_orig[0][0], loose_orig[-1][1]))
-            entry["original_text"] = original[s:e]
-        if loose_ed:
-            s, e = _unique_snippet(edition, (loose_ed[0][0], loose_ed[-1][1]),
-                                   [(m.start(), m.end()) for m in QUOTE_RE.finditer(edition)])
-            entry["edition_text"] = edition[s:e]
-        else:
-            entry["edition_text"] = ""  # a pure deletion
-        changes.append(entry)
+        # One change per run of changed words between quotations, paired in
+        # order (``foo calm bar`` -> ``new "calm" other`` gives foo -> new and
+        # bar -> other), so each can carry its own label.
+        ed_runs, orig_runs = _runs(loose_ed, all_quotes), _runs(loose_orig, quoted_original)
+        for index in range(max(len(ed_runs), len(orig_runs))):
+            entry = {"id": f"c{len(changes) + 1}", "kind": None, "rationale": ""}
+            if index < len(orig_runs):
+                run = orig_runs[index]
+                s, e = _unique_snippet(original, (run[0][0], run[-1][1]))
+                entry["original_text"] = original[s:e]
+            if index < len(ed_runs):
+                run = ed_runs[index]
+                s, e = _unique_snippet(edition, (run[0][0], run[-1][1]), all_quotes)
+                entry["edition_text"] = edition[s:e]
+            else:
+                entry["edition_text"] = ""  # a pure deletion
+            changes.append(entry)
 
     return {
         "_draft": ("Written by `draft-spec`. Give every change a kind (agent addition, "
