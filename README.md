@@ -1,7 +1,7 @@
 # Prospero
 
 **Status:** activated 2026-11-09. Editorial-packet mechanics (`prospero/packet/`): packets and decisions (first
-increment), revisions and history (second), tested on invented text only. Running it on Zach's own writing (the pilot) is his call and happens outside this repository.
+increment), revisions and history (second), a side-by-side review sheet (third, proposed), tested on invented text only. Running it on Zach's own writing (the pilot) is his call and happens outside this repository.
 
 ## What it is for
 
@@ -77,6 +77,23 @@ one packet are shown side by side, and two acceptances are both listed. Whether 
 superseded, what conflicting decisions mean and whether branching is allowed are open questions for Zach. History
 fails closed: a missing or edited parent, a parent for another original, a loop, a corrupt packet or log line, or an
 original whose bytes have changed is reported as a problem (exit 1), never skipped.
+
+### Review sheet (third increment, proposed)
+
+`review` turns a packet into one HTML page for deciding on it: the original and the edition side by side, every
+declared change highlighted in both and coloured by its label, quotations underlined with their locators, and every
+difference nobody declared marked as **unlabelled** in place. Clicking a change jumps to it in both texts. The page
+has no scripts and loads nothing from the network, so it opens offline beside the packet.
+
+```bash
+python3 -m prospero.packet --home ~/prospero-content review packets/first.packet.json   # writes packets/first.review.html
+```
+
+Packets now record the exact words the `changes-labelled` check found unlabelled (`"unlabelled"`, character offsets on each side), and the sheet draws those, so it can't disagree with the check; for older packets it falls back to its own reading.
+
+The sheet records nothing: deciding is still `decide`, whose commands the sheet prints. It re-checks the original's
+hash and says plainly when the original has changed since the packet was built. `review` exits 1 when a check failed
+or the original changed (the sheet is still written, so the problems can be seen).
 
 ### What the checks don't catch
 
