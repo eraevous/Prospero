@@ -8,6 +8,7 @@ invented for these tests (DEC-183, DEC-184).
 
 import io
 import json
+import os
 from contextlib import redirect_stderr, redirect_stdout
 
 from prospero.packet import LineageError, history, parent_ref, record_decision, write_packet
@@ -283,3 +284,19 @@ class CodexReviewOn9Test(LineageTestCase):
         self.assertTrue(h.ok, h.problems)
         self.assertEqual(h.packets[first].children, [second])
         self.assertEqual(h.roots(), [first])
+
+    def test_packets_folder_symlinked_inside_the_content_folder_still_links(self):
+        # Codex review on #9 (b0cac1c): packets/ -> storage/ made the canonical
+        # parent name differ from the listed packet name.
+        (self.home / "storage").mkdir()
+        try:
+            os.symlink(self.home / "storage", self.home / "packets", target_is_directory=True)
+        except (OSError, NotImplementedError) as error:  # e.g. Windows without privilege
+            self.skipTest(f"symlinks unavailable: {error}")
+        first = self.make("first", EDITION, SPEC)
+        self.make("second", EDITION_2, SPEC_2, parent=first)
+        h = history(self.source, "original.txt")
+        self.assertTrue(h.ok, h.problems)
+        self.assertEqual(len(h.packets), 2)
+        self.assertEqual(len(h.roots()), 1)
+        self.assertEqual(len(h.packets[h.roots()[0]].children), 1)

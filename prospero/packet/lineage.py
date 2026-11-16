@@ -134,7 +134,17 @@ class History:
 
 def _read_packets(source: Source, original: str, problems: list[str]) -> dict[str, Node]:
     nodes = {}
-    for name in source.names(PACKETS, "*.packet.json"):
+    for listed in source.names(PACKETS, "*.packet.json"):
+        # Key every packet by the same canonical name parent references use
+        # (Codex review on #9: with packets/ a symlink inside the content
+        # folder, the listed and canonical spellings differ).
+        try:
+            name = _canonical(source, listed)
+        except SourceError as error:
+            problems.append(f"{listed}: unreadable packet ({error})")
+            continue
+        if name in nodes:
+            continue  # the same file reached by two spellings
         try:
             text = source.read(name)
             data = json.loads(text)
