@@ -123,7 +123,11 @@ def _marks(packet: dict) -> tuple[list, list]:
             if isinstance(start, int) and original[start:start + len(quote["text"])] == quote["text"]:
                 orig_marks.append((start, start + len(quote["text"]), "quote", None))
     # Unlabelled differences, word by word, on both sides.
-    ed_known = [(s, e) for s, e, *_ in ed_marks] + [(m.start(), m.end()) for m in QUOTE_RE.finditer(edition)]
+    # Only *declared* quotations exempt their words, as in build_packet: an
+    # undeclared quotation is an unlabelled change and must show (Codex on #10).
+    ed_known = [(s, e) for s, e, *_ in ed_marks] + [
+        (m.start(), m.end()) for m in QUOTE_RE.finditer(edition)
+        if (m.group(1) if m.group(1) is not None else m.group(2)) in declared]
     orig_known = [(s, e) for s, e, *_ in orig_marks]
     for diff in _differences(original, edition):
         for word in diff["edition_words"]:

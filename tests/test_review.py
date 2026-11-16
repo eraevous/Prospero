@@ -144,6 +144,13 @@ class ReviewTest(PacketTestCase):
         self.assertEqual(keep.read_text(encoding="utf-8"), "keep me\n")
         self.assertEqual(sorted(p.name for p in folder.iterdir()), [".first.review.html.tmp", "first.review.html"])
 
+    def test_an_undeclared_quotation_is_marked_unlabelled(self):
+        # The builder reports it; the sheet must show where (Codex on #10).
+        self.write("original.txt", "cat\n")
+        packet = self.packet_dict({"changes": [], "quotations": []}, 'cat "dog"\n')
+        self.assertFalse(packet["ok"])
+        self.assertRegex(render_review(packet, source=self.source), LOOSE_MARK)
+
     def test_not_a_packet_is_refused(self):
         with self.assertRaises(RecordError):
             render_review({"format": "something else"})
