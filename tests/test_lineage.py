@@ -577,3 +577,62 @@ class CodexReviewOn479Test(LineageTestCase):
         h = history(self.source, "original.txt")
         self.assertFalse(h.ok)
         self.assertTrue(any("loop.packet.json" in p for p in h.problems), h.problems)
+
+
+class CopilotReviewOnA8eTest(LineageTestCase):
+    """Copilot's three "previously missed" findings on #9 at a8efb67."""
+
+    def rewrite_packet(self, name, change):
+        data = json.loads(self.source.read(name))
+        change(data)
+        (self.home / name).write_text(json.dumps(data), encoding="utf-8")
+
+    def test_packet_with_an_empty_original_name_is_a_problem(self):
+        first = self.make("first", EDITION, SPEC)
+        self.rewrite_packet(first, lambda d: d["original"].update(name=""))
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("first.packet.json" in p for p in h.problems), h.problems)
+
+    def test_packet_names_with_nul_are_problems_not_crashes(self):
+        for part in ("original", "edition", "parent"):
+            with self.subTest(part=part):
+                first = self.make(f"{part}-first", EDITION, SPEC)
+                second = self.make(f"{part}-second", EDITION_2, SPEC_2, parent=first)
+                target = first if part != "parent" else second
+                self.rewrite_packet(target, lambda d: d[part].update(name="bad\x00name"))
+                h = history(self.source, "original.txt")
+                self.assertFalse(h.ok)
+                stem = target.rsplit("/", 1)[1]
+                self.assertTrue(any(stem in p and "unreadable packet" in p for p in h.problems), h.problems)
+
+    def test_decision_paths_with_nul_are_reported_not_raised(self):
+        first = self.make("first", EDITION, SPEC)
+        self.decide(first, "accept")
+        good = json.loads((self.home / "decisions.jsonl").read_text(encoding="utf-8"))
+        for field in ("original", "packet"):
+            with self.subTest(field=field):
+                bad = dict(good, **{field: "bad\x00name"})
+                with open(self.home / "decisions.jsonl", "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(bad) + "\n")
+                h = history(self.source, "original.txt")
+                self.assertFalse(h.ok)
+                self.assertTrue(any("malformed decision" in p for p in h.problems), h.problems)
+                # The well-formed line is still read.
+                self.assertTrue(any(e.get("decision") == "accept" for e in h.events), h.events)
+
+    def test_unlistable_packets_folder_is_a_problem(self):
+        from unittest import mock
+        self.make("first", EDITION, SPEC)
+        packets = (self.home / "packets").resolve()
+        real_scandir = os.scandir
+
+        def refuse(path=".", *args, **kwargs):
+            if Path(os.fsdecode(path)).resolve() == packets:
+                raise PermissionError(13, "Permission denied", str(path))
+            return real_scandir(path, *args, **kwargs)
+
+        with mock.patch("os.scandir", side_effect=refuse), mock.patch("os.listdir", side_effect=refuse):
+            h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any(p.startswith("packets/") and "can't be listed" in p for p in h.problems), h.problems)

@@ -14,6 +14,7 @@ swap in another backend.
 
 from __future__ import annotations
 
+import fnmatch
 import os
 from pathlib import Path
 
@@ -28,7 +29,8 @@ def _resolve(path: Path, name: str) -> Path:
     ``RuntimeError``, which would escape every caller)."""
     try:
         return path.resolve()
-    except (RuntimeError, OSError) as error:
+    except (RuntimeError, OSError, ValueError) as error:
+        # ValueError: a name with a NUL in it (Copilot review on #9 at a8efb67).
         raise SourceError(f"{name!r} can't be resolved (a symlink loop?): {error}") from error
 
 
@@ -95,7 +97,13 @@ class FolderSource(Source):
             raise SourceError(f"{folder!r} points outside the source folder")
         if not real.is_dir():
             raise SourceError(f"{folder!r} exists but is not a folder (or is a broken link)")
-        return [f"{folder}/{path.name}" for path in sorted(real.glob(pattern))]
+        # os.listdir, not Path.glob: glob swallows a PermissionError and would
+        # make an unreadable packets/ look empty (Copilot review on #9 at a8efb67).
+        try:
+            entries = os.listdir(real)
+        except OSError as error:
+            raise SourceError(f"{folder!r} can't be listed: {error}") from error
+        return [f"{folder}/{entry}" for entry in sorted(fnmatch.filter(entries, pattern))]
 
     def read(self, name: str) -> str:
         # newline="" keeps the bytes as they are (no \r\n translation), so the

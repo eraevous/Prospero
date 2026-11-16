@@ -53,6 +53,13 @@ def _same_original(source: Source, stored: str, original: str) -> bool:
         return stored == original
 
 
+def _usable_name(value) -> bool:
+    """A name that can be a path: a non-empty string with no NUL (Copilot
+    review on #9 at a8efb67: an empty name was silently dropped, and a NUL
+    made path handling raise ``ValueError`` and abort history)."""
+    return isinstance(value, str) and bool(value) and "\x00" not in value
+
+
 def _packet_fields(data) -> tuple[dict, dict, dict | None]:
     """The original, edition and parent of a parsed packet, or ValueError if any
     has the wrong shape (Codex review on #9: valid JSON with ``"edition": null``
@@ -61,16 +68,16 @@ def _packet_fields(data) -> tuple[dict, dict, dict | None]:
         raise ValueError("not a JSON object")
     original, edition, parent = data.get("original"), data.get("edition"), data.get("parent")
     for label, part in (("original", original), ("edition", edition)):
-        if not isinstance(part, dict) or not isinstance(part.get("name"), str) \
+        if not isinstance(part, dict) or not _usable_name(part.get("name")) \
                 or not isinstance(part.get("sha256"), str):
-            raise ValueError(f"{label} must be an object with a name and sha256")
+            raise ValueError(f"{label} must be an object with a non-empty name (no NUL) and sha256")
     if data.get("ok") is not None and not isinstance(data.get("ok"), bool):
         # Codex review on #9: "ok" is rendered as a lookup key, so a list or
         # object there must be caught here, not crash the report.
         raise ValueError("ok must be true, false or absent")
-    if parent is not None and not (isinstance(parent, dict) and isinstance(parent.get("name"), str)
+    if parent is not None and not (isinstance(parent, dict) and _usable_name(parent.get("name"))
                                    and isinstance(parent.get("sha256"), str)):
-        raise ValueError("parent must be null or an object with a name and sha256")
+        raise ValueError("parent must be null or an object with a non-empty name (no NUL) and sha256")
     return original, edition, parent
 
 PACKETS = "packets"
@@ -266,6 +273,9 @@ def _read_decisions(source: Source, original: str, nodes: dict[str, Node], probl
             problems.append(f"{where}: unreadable (not a decision record)")
             continue
         missing = [k for k in REQUIRED if not isinstance(entry.get(k), str) or not entry[k]]
+        # Paths with a NUL can't be looked up; treat them as malformed here,
+        # before any matching (Copilot review on #9 at a8efb67).
+        missing += [k for k in ("original", "packet") if isinstance(entry.get(k), str) and "\x00" in entry[k]]
         if entry.get("decision") not in DECISIONS:
             missing.append("decision (accept, reject or revise)")
         has_packet = "packet" in entry or "packet_sha256" in entry
