@@ -9,9 +9,10 @@ invented for these tests (DEC-183, DEC-184).
 import io
 import json
 import os
+from pathlib import Path
 from contextlib import redirect_stderr, redirect_stdout
 
-from prospero.packet import LineageError, history, parent_ref, record_decision, write_packet
+from prospero.packet import LineageError, history, parent_ref, record_decision, render_history, write_packet
 from prospero.packet.__main__ import main
 from prospero.packet.build import build_packet, sha256
 
@@ -194,6 +195,7 @@ class HistoryTest(LineageTestCase):
         record_decision(self.home, json.loads(self.source.read(first)), self.source, "accept", "zach")
         h = history(self.source, "original.txt")
         self.assertTrue(h.events[0].get("ambiguous"))
+        self.assertFalse(h.ok)  # Kate's review: ambiguity is unresolved provenance
         self.assertEqual(len(h.events[0]["packets"]), 2)
 
     def test_other_originals_are_left_out(self):
@@ -300,3 +302,101 @@ class CodexReviewOn9Test(LineageTestCase):
         self.assertEqual(len(h.packets), 2)
         self.assertEqual(len(h.roots()), 1)
         self.assertEqual(len(h.packets[h.roots()[0]].children), 1)
+
+
+class KateReviewOn9Test(LineageTestCase):
+    """Kate's (API instance) code review of #9, 2026-11-16: her fixtures, one test each."""
+
+    def log(self, *entries):
+        with open(self.home / "decisions.jsonl", "a", encoding="utf-8") as handle:
+            for entry in entries:
+                handle.write((entry if isinstance(entry, str) else json.dumps(entry)) + "\n")
+
+    def test_packet_with_empty_original_and_edition_is_a_problem(self):
+        (self.home / "packets").mkdir()
+        (self.home / "packets" / "bad.packet.json").write_text('{"original": {}, "edition": {}}', encoding="utf-8")
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("bad.packet.json" in p for p in h.problems), h.problems)
+
+    def test_list_original_and_list_parent_are_problems_not_crashes(self):
+        first = self.make("first", EDITION, SPEC)
+        (self.home / "packets" / "a.packet.json").write_text('{"original": [], "edition": {}}', encoding="utf-8")
+        data = json.loads(self.source.read(first))
+        data["parent"] = []
+        (self.home / "packets" / "b.packet.json").write_text(json.dumps(data), encoding="utf-8")
+        h = history(self.source, "original.txt")
+        self.assertTrue(any("a.packet.json" in p for p in h.problems), h.problems)
+        self.assertTrue(any("b.packet.json" in p for p in h.problems), h.problems)
+        self.write("listy.json", json.dumps({"original": [], "edition": {}}))
+        with self.assertRaises(LineageError):
+            parent_ref(self.source, "listy.json", "original.txt")
+
+    def test_decision_missing_its_fields_is_a_problem(self):
+        self.log({"original": "original.txt"})
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("malformed decision" in p for p in h.problems), h.problems)
+        self.assertEqual(h.events, [])
+
+    def test_unknown_decision_word_is_a_problem(self):
+        first = self.make("first", EDITION, SPEC)
+        entry = self.decide(first, "accept")
+        self.log(dict(entry, decision="maybe"))
+        h = history(self.source, "original.txt")
+        self.assertTrue(any("decision (accept" in p for p in h.problems), h.problems)
+
+    def test_recorded_packet_name_must_match_as_well_as_the_hash(self):
+        first = self.make("first", EDITION, SPEC)
+        entry = self.decide(first, "accept")
+        self.log(dict(entry, packet="packets/missing.packet.json"))
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("missing.packet.json" in p for p in h.problems), h.problems)
+        self.assertEqual(len(h.packets[first].decisions), 1)  # only the honest line attaches
+
+    def test_line_with_packet_name_but_no_hash_is_corrupt_not_legacy(self):
+        first = self.make("first", EDITION, SPEC)
+        entry = self.decide(first, "accept")
+        broken = {k: v for k, v in entry.items() if k != "packet_sha256"}
+        self.log(broken)
+        h = history(self.source, "original.txt")
+        self.assertTrue(any("packet and packet_sha256" in p for p in h.problems), h.problems)
+        self.assertEqual(len(h.packets[first].decisions), 1)
+
+    def test_unreadable_log_is_a_problem_not_an_empty_history(self):
+        self.make("first", EDITION, SPEC)
+        outside = Path(self._tmp.name) / "elsewhere.jsonl"
+        outside.write_text("", encoding="utf-8")
+        try:
+            os.symlink(outside, self.home / "decisions.jsonl")
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("can't be read" in p for p in h.problems), h.problems)
+
+    def test_absent_log_is_an_empty_history(self):
+        self.make("first", EDITION, SPEC)
+        h = history(self.source, "original.txt")
+        self.assertTrue(h.ok, h.problems)
+        self.assertEqual(h.events, [])
+
+    def test_single_legacy_match_is_labelled_inferred(self):
+        first = self.make("first", EDITION, SPEC)
+        record_decision(self.home, json.loads(self.source.read(first)), self.source, "accept", "zach")
+        h = history(self.source, "original.txt")
+        self.assertTrue(h.ok, h.problems)
+        self.assertEqual(h.events[0]["link"], "inferred")
+        self.assertIn("(inferred", render_history(h))
+
+    def test_packets_in_a_loop_are_still_listed(self):
+        a = self.make("a", EDITION, SPEC)
+        b = self.make("b", EDITION_2, SPEC_2, parent=a)
+        data = json.loads(self.source.read(a))
+        data["parent"] = {"name": b, "sha256": sha256(self.source.read(b))}
+        (self.home / a).write_text(json.dumps(data), encoding="utf-8")
+        text = render_history(history(self.source, "original.txt"))
+        self.assertIn("broken lineage", text)
+        self.assertIn(a, text)
+        self.assertIn(b, text)

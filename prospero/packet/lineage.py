@@ -27,9 +27,11 @@ command line exits 1 when there is any problem.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 
 from .build import sha256
+from .record import DECISIONS
 from .sources import Source, SourceError
 
 
@@ -201,47 +203,91 @@ def _check_links(source: Source, nodes: dict[str, Node], current: str, problems:
                 break
 
 
-def _read_decisions(source: Source, original: str, nodes: dict[str, Node], problems: list[str]) -> list[dict]:
+def _read_log(source: Source, problems: list[str]) -> str:
+    """The decision log's text, or "" when there is none.
+
+    Only a log that is confirmed absent counts as "no decisions" (Kate's
+    review on #9): a log that exists but can't be read, or points outside the
+    content folder, is a problem, not an empty history.
+    """
+    root = getattr(source, "root", None)
+    if root is not None and not os.path.lexists(root / DECISION_LOG):
+        return ""
     try:
-        text = source.read(DECISION_LOG)
-    except SourceError:
-        return []  # no decisions recorded yet
+        return source.read(DECISION_LOG)
+    except (SourceError, OSError, UnicodeDecodeError) as error:
+        problems.append(f"{DECISION_LOG}: exists but can't be read ({error})")
+        return ""
+
+
+# Fields every decision line must carry, whatever its age.
+REQUIRED = ("at", "decision", "by", "original", "original_sha256", "edition", "edition_sha256")
+
+
+def _read_decisions(source: Source, original: str, nodes: dict[str, Node], problems: list[str]) -> list[dict]:
     events = []
-    for number, line in enumerate(text.splitlines(), start=1):
+    for number, line in enumerate(_read_log(source, problems).splitlines(), start=1):
         if not line.strip():
             continue
+        where = f"{DECISION_LOG} line {number}"
         try:
             entry = json.loads(line)
-            entry_original = entry["original"]
-        except (json.JSONDecodeError, KeyError, TypeError) as error:
-            problems.append(f"{DECISION_LOG} line {number}: unreadable ({error})")
+        except json.JSONDecodeError as error:
+            problems.append(f"{where}: unreadable ({error})")
             continue
-        if entry_original != original:
+        if not isinstance(entry, dict) or not isinstance(entry.get("original"), str):
+            problems.append(f"{where}: unreadable (not a decision record)")
             continue
-        if entry.get("packet_sha256"):
-            # Decisions recorded since increment 2 name the packet exactly.
-            matched = [n for n in nodes.values() if n.sha256 == entry["packet_sha256"]]
+        if entry["original"] != original:
+            continue
+        missing = [k for k in REQUIRED if not isinstance(entry.get(k), str) or not entry[k]]
+        if entry.get("decision") not in DECISIONS:
+            missing.append("decision (accept, reject or revise)")
+        has_packet = "packet" in entry or "packet_sha256" in entry
+        if has_packet and not (isinstance(entry.get("packet"), str) and isinstance(entry.get("packet_sha256"), str)
+                               and entry["packet"] and entry["packet_sha256"]):
+            # A line that started to name its packet and didn't finish is
+            # corrupt; it must not fall back to the legacy match.
+            missing.append("packet and packet_sha256 together")
+        if missing:
+            problems.append(f"{where}: malformed decision, missing or invalid {', '.join(dict.fromkeys(missing))}")
+            continue
+
+        if has_packet:
+            # Since increment 2 a line names its packet: the name and the hash
+            # must both match (Kate's review on #9).
+            try:
+                named = _canonical(source, entry["packet"])
+            except SourceError:
+                named = entry["packet"]
+            node = nodes.get(named)
+            matched = [node] if node is not None and node.sha256 == entry["packet_sha256"] else []
             if not matched:
-                problems.append(f"{DECISION_LOG} line {number}: decides a packet that isn't here "
-                                f"({entry.get('packet', '?')}) or has changed since")
+                problems.append(f"{where}: decides {entry['packet']}, which isn't here with that hash "
+                                f"(missing, renamed or changed since)")
+            link = "recorded"
         else:
-            # Older lines name only the original and edition; every packet with
-            # that pair is a candidate, and history says so rather than guess.
+            # Older lines name only the original and edition. Every packet with
+            # that pair is a candidate; the link is inferred, never confirmed.
             matched = [n for n in nodes.values()
-                       if n.edition_sha256 == entry.get("edition_sha256")
-                       and n.original_sha256 == entry.get("original_sha256")]
+                       if n.edition_sha256 == entry["edition_sha256"]
+                       and n.original_sha256 == entry["original_sha256"]]
+            link = "inferred"
             if not matched:
                 # Codex review on #9: a missing packet is a problem for older
                 # lines too, or history looks complete when it isn't.
-                problems.append(f"{DECISION_LOG} line {number}: decides edition {entry.get('edition', '?')}, "
+                problems.append(f"{where}: decides edition {entry['edition']}, "
                                 f"but no packet here has that original and edition")
-        event = {"line": number, "at": entry.get("at"), "decision": entry.get("decision"), "by": entry.get("by"),
-                 "note": entry.get("note", ""), "packets": sorted(n.name for n in matched)}
-        if not entry.get("packet_sha256") and len(matched) > 1:
+            elif len(matched) > 1:
+                problems.append(f"{where}: older line names no packet and matches {len(matched)}; "
+                                f"which one was decided is unknown")
+        event = {"line": number, "at": entry["at"], "decision": entry["decision"], "by": entry["by"],
+                 "note": entry.get("note", ""), "packets": sorted(n.name for n in matched), "link": link}
+        if link == "inferred" and len(matched) > 1:
             event["ambiguous"] = True
         events.append(event)
         for node in matched:
-            node.decisions.append({k: event[k] for k in ("line", "at", "decision", "by")})
+            node.decisions.append({k: event[k] for k in ("line", "at", "decision", "by", "link")})
     return events
 
 
@@ -264,9 +310,13 @@ def render_history(h: History) -> str:
     if not h.packets:
         lines.append("No packets for this original.")
 
+    visited: set = set()
+
     def walk(name: str, depth: int, seen: set) -> None:
+        visited.add(name)
         node = h.packets[name]
-        calls = ", ".join(f"{d['decision']} by {d['by']}" for d in node.decisions) or "no decision recorded"
+        calls = ", ".join(f"{d['decision']} by {d['by']}" + (" (inferred)" if d.get("link") == "inferred" else "")
+                          for d in node.decisions) or "no decision recorded"
         checks = {True: "checks ok", False: "checks FAILED"}.get(node.checks_ok, "checks unknown")
         lines.append(f"{'  ' * depth}- {name} (edition {node.edition}; {checks}; {calls})")
         if name in seen:
@@ -276,10 +326,18 @@ def render_history(h: History) -> str:
 
     for root in h.roots():
         walk(root, 0, set())
+    # Packets no root reaches (a loop) are still listed, marked as broken, so
+    # the tree never looks complete when it isn't (Kate's review on #9).
+    stray = sorted(set(h.packets) - visited)
+    if stray:
+        lines.append("Not reachable from any first packet (broken lineage):")
+        for name in stray:
+            lines.append(f"- {name} (revises {h.packets[name].parent.get('name') if h.packets[name].parent else '?'})")
     lines += ["", "Decisions, in the order recorded:"]
     for e in h.events:
         which = ", ".join(e["packets"]) or "no matching packet"
-        flag = " (ambiguous: older line names no packet)" if e.get("ambiguous") else ""
+        flag = (" (ambiguous: older line names no packet)" if e.get("ambiguous")
+                else " (inferred: older line names no packet)" if e.get("link") == "inferred" else "")
         lines.append(f"- line {e['line']}: {e['at']} {e['decision']} by {e['by']} on {which}{flag}"
                      + (f": {e['note']}" if e["note"] else ""))
     if not h.events:
