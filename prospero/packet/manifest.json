@@ -2,8 +2,8 @@
   "manifest": "kairos.tool-manifest.provisional",
   "note": "DEC-177 requires every new tool to declare its sockets; the manifest schema itself is still with R&D, so this file is provisional and will be migrated when a schema is adopted.",
   "tool": "prospero.packet",
-  "version": "0.3.0",
-  "purpose": "Build an editorial packet (original + proposed edition + labelled changes + resolved quotations) record accept/reject/revise decisions, link revisions to their parent packet, report the history of one original, and render a side-by-side HTML review sheet for a packet.",
+  "version": "0.4.0",
+  "purpose": "Build an editorial packet (original + proposed edition + labelled changes + resolved quotations), draft a spec listing every difference for a person to label, record accept/reject/revise decisions, link revisions to their parent packet, report the history of one original, and render a side-by-side HTML review sheet for a packet.",
   "sockets": {
     "information_in": [
       {
@@ -22,6 +22,14 @@
         "location": "<content folder>/packets/",
         "writes": ["<stem>.packet.json", "<stem>.packet.md"],
         "refuses": "any folder inside this repository"
+      },
+      {
+        "id": "draft-spec",
+        "kind": "file (JSON)",
+        "implementation": "prospero/packet/draft.py:draft_spec",
+        "location": "<content folder>/<path given with --out>",
+        "writes": ["a spec skeleton: every difference as an unlabelled change, every quotation declared"],
+        "refuses": "an existing file, a symlink, any path outside the content folder or inside this repository"
       },
       {
         "id": "decisions",
