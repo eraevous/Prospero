@@ -107,6 +107,14 @@ class DraftTest(PacketTestCase):
         self.assertIn("outside", err)
         self.assertFalse((self.home.parent / "spec.json").exists())
 
+    def test_cli_refuses_a_dangling_symlink_at_the_output_name(self):
+        # spec.json -> other.json (missing) must not create other.json (Codex on #11).
+        os.symlink(self.home / "other.json", self.home / "spec.json")
+        code, _, err = self.run_cli("draft-spec", "original.txt", "edition.txt", "--out", "spec.json")
+        self.assertEqual(code, 1)
+        self.assertIn("already exists", err)
+        self.assertFalse((self.home / "other.json").exists())
+
     def test_never_written_inside_the_repository_or_through_a_symlink(self):
         with self.assertRaises(RecordError):
             write_spec({}, REPO_ROOT / "tests" / "draft.spec.json")

@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from .build import build_packet, sha256
 from .draft import draft_spec, write_spec
@@ -57,10 +58,16 @@ def main(argv: list[str] | None = None) -> int:
         source = FolderSource(home)
         if args.command == "draft-spec":
             spec = draft_spec(source.read(args.original), source.read(args.edition))
-            target = (home / args.out).resolve()
-            if source.root not in target.parents:
+            # Resolve the folder only and keep the file name as given, so a
+            # symlink at that name (even a dangling one) reaches write_spec,
+            # whose exclusive create refuses it (Codex on #11).
+            out = Path(args.out)
+            if out.name in ("", ".", ".."):
+                raise SourceError(f"--out must name a file, not {args.out!r}")
+            folder = (home / out).parent.resolve()
+            if folder != source.root and source.root not in folder.parents:
                 raise SourceError(f"{args.out!r} is outside the content folder")
-            path = write_spec(spec, target)
+            path = write_spec(spec, folder / out.name)
             blank = sum(1 for q in spec["quotations"] if not q["source"])
             print(f"wrote {path.name}: {len(spec['changes'])} change(s) and {len(spec['quotations'])} "
                   f"quotation(s); label every change{' and name ' + str(blank) + ' quotation source(s)' if blank else ''}"
