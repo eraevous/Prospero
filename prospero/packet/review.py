@@ -31,13 +31,21 @@ from __future__ import annotations
 import html
 import json
 import os
+import shlex
 from pathlib import Path
 
-from .build import KINDS, QUOTE_RE, _differences, _find_span, sha256
+# _covered is the builder's own coverage test (the union of labelled spans),
+# so a word the checks accept is never marked unlabelled here (Codex on #10).
+from .build import KINDS, QUOTE_RE, _covered, _differences, _find_span, sha256
 from .record import RecordError, _outside_repo
 from .sources import Source, SourceError
 
 FORMAT = "prospero.editorial-packet.v0"
+
+# The first line of every sheet. write_review only replaces a file that starts
+# with it, so it can never overwrite a text that happens to have the sheet's
+# name (an original or edition called first.review.html, say).
+MARKER = "<!doctype html><!-- prospero review sheet -->"
 
 # One CSS class per label. Unknown labels (a failed check) get "unknown".
 KIND_CLASS = {"agent addition": "add", "transformation": "xf", "interpretation": "interp"}
@@ -71,10 +79,6 @@ def _segments(text: str, marks: list[tuple[int, int, str, str | None]]) -> str:
             attrs += f' title="{html.escape(", ".join(t.split(":", 1)[-1] for t in titles), quote=True)}"'
         out.append(f"<span{attrs}>{piece}</span>")
     return "".join(out)
-
-
-def _covered(span: tuple[int, int], spans: list[tuple[int, int]]) -> bool:
-    return any(s <= span[0] and span[1] <= e for s, e in spans)
 
 
 def _marks(packet: dict) -> tuple[list, list]:
@@ -172,11 +176,15 @@ def render_review(packet: dict, packet_name: str = "PACKET.json", source: Source
                f'(sha256 {esc(str(parent.get("sha256", ""))[:12])}…)</p>' if parent else "")
     legend = "".join(f'<span class="chip {KIND_CLASS[k]}">{k}</span>' for k in KINDS)
     pq = esc(packet_name, quote=True)
-    commands = "\n".join(f"python3 -m prospero.packet decide {pq} {d} --by NAME --note \"…\""
+    # Shell-quote the name first, then HTML-escape the whole command: a name
+    # with a space or a shell metacharacter must still copy as one argument
+    # (Codex on #10). POSIX shell quoting.
+    shell_name = shlex.quote(packet_name)
+    commands = "\n".join(esc(f"python3 -m prospero.packet decide {shell_name} {d} --by NAME --note '…'")
                          for d in ("accept", "reject", "revise"))
     disk_class = {True: "ok", False: "fail", None: "meta"}[on_disk_ok]
 
-    return f"""<!doctype html>
+    return f"""{MARKER}
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Review: {esc(packet["edition"]["name"])}</title>
@@ -265,6 +273,16 @@ def write_review(packet_text: str, packet_name: str, out_dir: str | Path, source
     path = folder / f"{stem}.review.html"
     if path.is_symlink():
         raise RecordError(f"{path.name} is a symlink; refusing to write through it")
+    # Replace only an earlier sheet. Anything else under this name (an input
+    # text, a note) is refused, checked by content so no alias can slip by.
+    if os.path.lexists(path):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                first = handle.readline().rstrip("\r\n")
+        except OSError as error:
+            raise RecordError(f"{path.name} exists and can't be read: {error}") from error
+        if first != MARKER or not path.is_file():
+            raise RecordError(f"{path.name} exists and is not a review sheet; refusing to replace it")
     folder.mkdir(parents=True, exist_ok=True)
     # Write a temporary file and rename it over the old sheet: the rename
     # replaces a name, so a link planted at the target is not followed.

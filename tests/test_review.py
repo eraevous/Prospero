@@ -24,6 +24,10 @@ def classes_of(page, anchor):
     return set(match.group(1).split()) if match else set()
 
 
+# A highlighted piece of text marked unlabelled (the legend's chip doesn't count).
+LOOSE_MARK = r'<span class="(?![^"]*chip)[^"]*\bloose\b'
+
+
 class ReviewTest(PacketTestCase):
     def packet_dict(self, spec=SPEC, edition=None):
         return self.build(spec, edition).to_dict()
@@ -42,7 +46,7 @@ class ReviewTest(PacketTestCase):
         self.assertIn('href="#o:c1"', page)                   # the card links to both
         self.assertIn("All checks passed", page)
         self.assertIn("original on disk matches the packet", page)
-        self.assertNotIn('class="loose"', page)
+        self.assertNotRegex(page, LOOSE_MARK)
 
     def test_an_unlabelled_difference_is_marked_where_it_is(self):
         edition = EDITION.replace("kept watch", "kept a long watch")
@@ -85,6 +89,29 @@ class ReviewTest(PacketTestCase):
         self.assertEqual(classes_of(page, "e:c1"), {"chg", "interp", "xf"})
         self.assertIn('id="e:c3"', page)
         self.assertEqual(len(re.findall(r'id="e:c1"', page)), 1)  # ids stay unique
+
+    def test_a_word_covered_by_two_changes_together_is_not_unlabelled(self):
+        # The builder accepts coverage by the union of spans; the sheet must agree.
+        edition = EDITION.replace("Nobody slept.", "Nobody dozed.")
+        spec = json.loads(json.dumps(SPEC))
+        spec["changes"][1]["edition_text"] = "Nobody do"
+        spec["changes"].append({"id": "c3", "kind": "agent addition", "rationale": "split", "edition_text": "zed."})
+        packet = self.packet_dict(spec, edition)
+        self.assertTrue(packet["ok"], packet["checks"])
+        self.assertNotRegex(render_review(packet, source=self.source), LOOSE_MARK)
+
+    def test_decide_commands_shell_quote_the_packet_name(self):
+        page = render_review(self.packet_dict(), "packets/first draft;rm x.packet.json", self.source)
+        self.assertIn("decide &#x27;packets/first draft;rm x.packet.json&#x27; accept", page)
+
+    def test_an_input_text_with_the_sheets_name_is_never_replaced(self):
+        # An original named like the sheet, beside the packet (Codex on #10).
+        folder = self.home / "packets"
+        folder.mkdir()
+        (folder / "first.review.html").write_text(EDITION, encoding="utf-8")
+        with self.assertRaises(RecordError):
+            write_review(json.dumps(self.packet_dict()), "first.packet.json", folder)
+        self.assertEqual((folder / "first.review.html").read_text(encoding="utf-8"), EDITION)
 
     def test_not_a_packet_is_refused(self):
         with self.assertRaises(RecordError):
