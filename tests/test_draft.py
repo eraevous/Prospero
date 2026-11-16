@@ -31,6 +31,10 @@ CASES = {
     "whole text replaced": ("one two three\n", "four five\n"),
     "changes either side of a quotation": ("foo calm bar\n", 'new "calm" other\n'),
     "two quotations, three changes": ("a x b y c\n", 'p "x" q "y" r\n'),
+    "punctuation touching a quotation": ("foo calm, bar\n", 'new "calm", other\n'),
+    "em dash touching a quotation": ('"calm"—sad\n', '"calm"—afraid\n'),
+    "a deleted gap between quotations": ("old calm middle quiet tail\n", 'new "calm" "quiet" end\n'),
+    "an inserted gap between quotations": ("old calm quiet tail\n", 'new "calm" extra "quiet" end\n'),
 }
 
 
@@ -100,6 +104,37 @@ class DraftTest(PacketTestCase):
         spec = labelled(draft_spec(original, edition), kind="interpretation")
         packet = build_packet(self.source, "original.txt", "edition.txt", spec)
         self.assertTrue(packet.ok, [c for c in packet.checks if not c.ok])
+
+    def test_every_case_can_be_labelled_interpretation(self):
+        # No drafted change may reach into a quotation (Copilot on #11): an
+        # interpretation label must pass wherever the draft put one.
+        for name, (original, edition) in CASES.items():
+            with self.subTest(name):
+                self.write("original.txt", original)
+                self.write("edition.txt", edition)
+                spec = labelled(draft_spec(original, edition), kind="interpretation")
+                packet = build_packet(self.source, "original.txt", "edition.txt", spec)
+                check = next(c for c in packet.checks if c.name == "no-interpretation-as-quotation")
+                self.assertTrue(check.ok, check.problems)
+
+    def test_edits_pair_within_the_gap_between_quotations(self):
+        # Never across a quotation (Copilot on #11).
+        changes = draft_spec("old calm middle quiet tail\n", 'new "calm" "quiet" end\n')["changes"]
+        self.assertEqual([(c.get("original_text"), c["edition_text"]) for c in changes],
+                         [("old", "new"), ("middle", ""), ("tail", "end")])
+        changes = draft_spec("old calm quiet tail\n", 'new "calm" extra "quiet" end\n')["changes"]
+        self.assertEqual([(c.get("original_text"), c["edition_text"]) for c in changes],
+                         [("old", "new"), (None, "extra"), ("tail", "end")])
+
+    def test_punctuation_next_to_a_quotation_stays_out_of_it(self):
+        changes = draft_spec("foo calm, bar\n", 'new "calm", other\n')["changes"]
+        self.assertTrue(all('"' not in c["edition_text"] for c in changes), changes)
+
+    def test_cli_reports_a_symlink_loop_in_the_output_path(self):
+        os.symlink(self.home / "loop", self.home / "loop")
+        code, _, err = self.run_cli("draft-spec", "original.txt", "edition.txt", "--out", "loop/spec.json")
+        self.assertEqual(code, 1)
+        self.assertIn("error", err)
 
     def test_quotations_are_declared_with_their_source(self):
         spec = draft_spec(ORIGINAL, EDITION)

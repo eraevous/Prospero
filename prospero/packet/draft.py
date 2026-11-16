@@ -91,21 +91,52 @@ def _unique_snippet(text: str, span: tuple[int, int],
     return start, end
 
 
-def _runs(words: list[tuple[int, int]], quotes: list[tuple[int, int]]) -> list[list[tuple[int, int]]]:
-    """Split changed words into runs at every quotation lying between two of
-    them, so a change never spans an unchanged quotation (Codex on #11)."""
-    runs: list[list[tuple[int, int]]] = []
-    for word in words:
-        if runs and not any(runs[-1][-1][1] <= qs and qe <= word[0] for qs, qe in quotes):
-            runs[-1].append(word)
+def _uncovered(word: tuple[int, int], covered: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """The parts of ``word`` no ``covered`` span reaches, character by
+    character. A word like ``"calm",`` keeps only its ``,`` once the quotation
+    is covered (Copilot on #11): the builder checks characters, not words."""
+    parts, start = [], word[0]
+    for qs, qe in sorted(covered):
+        if qe <= start or qs >= word[1]:
+            continue
+        if qs > start:
+            parts.append((start, qs))
+        start = max(start, qe)
+    if start < word[1]:
+        parts.append((start, word[1]))
+    return parts
+
+
+def _gap(position: int, anchors: list[tuple[int, int]]) -> int:
+    """How many quotations end at or before ``position``: which gap between
+    quotations the position sits in."""
+    return sum(1 for _, end in anchors if end <= position)
+
+
+def _group(fragments: list[tuple[int, int]], anchors: list[tuple[int, int]]) -> dict[int, list]:
+    """Fragments grouped by gap; within a gap, contiguous fragments (only
+    whitespace between, which sits in no other gap) form one run."""
+    gaps: dict[int, list[list[tuple[int, int]]]] = {}
+    for fragment in fragments:
+        runs = gaps.setdefault(_gap(fragment[0], anchors), [])
+        if runs and _gap(runs[-1][-1][1], anchors) == _gap(fragment[0], anchors):
+            runs[-1].append(fragment)
         else:
-            runs.append([word])
-    return runs
+            runs.append([fragment])
+    return gaps
 
 
 def draft_spec(original: str, edition: str) -> dict:
     """A spec skeleton for ``edition`` against ``original``: every difference
-    as an unlabelled change, every quotation declared."""
+    as an unlabelled change, every quotation declared.
+
+    Changes are formed from exactly the characters the builder's
+    ``changes-labelled`` check would flag once the quotations are declared,
+    split at quotations and paired gap by gap: the n-th stretch between
+    quotations in the original goes with the n-th in the edition (Copilot on
+    #11). So no change ever spans an unchanged quotation, and an edit is
+    never paired with one on the other side of a quotation.
+    """
     # Quotations first: a difference that only adds quotation marks around
     # the original's words is covered by declaring the quotation, exactly as
     # the builder treats it.
@@ -123,16 +154,20 @@ def draft_spec(original: str, edition: str) -> dict:
             quoted_original.append(in_original)
 
     all_quotes = [(m.start(), m.end()) for m in QUOTE_RE.finditer(edition)]
-    changes = []
+    ed_fragments, orig_fragments = [], []
     for diff in _differences(original, edition):
-        loose_ed = [w for w in diff["edition_words"] if not _covered(w, quoted_edition)]
-        loose_orig = [w for w in diff["original_words"] if not _covered(w, quoted_original)]
-        if not loose_ed and not loose_orig:
-            continue  # only quotation marks were added; the quotation covers it
-        # One change per run of changed words between quotations, paired in
-        # order (``foo calm bar`` -> ``new "calm" other`` gives foo -> new and
-        # bar -> other), so each can carry its own label.
-        ed_runs, orig_runs = _runs(loose_ed, all_quotes), _runs(loose_orig, quoted_original)
+        for word in diff["edition_words"]:
+            ed_fragments.extend(_uncovered(word, quoted_edition))
+        for word in diff["original_words"]:
+            orig_fragments.extend(_uncovered(word, quoted_original))
+
+    # The gaps are counted against the quotations that pair up across the
+    # texts (resolved ones), so gap n means the same stretch on both sides.
+    ed_gaps = _group(ed_fragments, quoted_edition)
+    orig_gaps = _group(orig_fragments, sorted(quoted_original))
+    changes = []
+    for gap in sorted(set(ed_gaps) | set(orig_gaps)):
+        ed_runs, orig_runs = ed_gaps.get(gap, []), orig_gaps.get(gap, [])
         for index in range(max(len(ed_runs), len(orig_runs))):
             entry = {"id": f"c{len(changes) + 1}", "kind": None, "rationale": ""}
             if index < len(orig_runs):
@@ -161,7 +196,11 @@ def write_spec(spec: dict, out_path: Path) -> Path:
     and never inside this repository."""
     folder = _outside_repo(out_path.parent)
     path = folder / out_path.name
-    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        # A symlink loop or a file where the folder should be: refuse cleanly.
+        raise RecordError(f"can't create {folder}: {error}") from error
     # lexists, not exists: a dangling symlink counts as taken. Mode "x" alone
     # is not enough: on Windows it follows a dangling link and creates the
     # target (CI on #11), so check the name itself first, as write_packet does.
@@ -173,4 +212,6 @@ def write_spec(spec: dict, out_path: Path) -> Path:
             handle.write(json.dumps(spec, ensure_ascii=False, indent=2) + "\n")
     except FileExistsError as error:
         raise RecordError(f"{path.name} already exists; choose another name") from error
+    except OSError as error:
+        raise RecordError(f"can't write {path.name}: {error}") from error
     return path

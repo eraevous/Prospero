@@ -71,7 +71,12 @@ def main(argv: list[str] | None = None) -> int:
             out = Path(args.out)
             if out.name in ("", ".", ".."):
                 raise SourceError(f"--out must name a file, not {args.out!r}")
-            folder = (home / out).parent.resolve()
+            try:
+                folder = (home / out).parent.resolve()
+            except (RuntimeError, OSError, ValueError) as error:
+                # A symlink loop raises RuntimeError on Python 3.10-3.12
+                # (Copilot on #11); report it like any rejected path.
+                raise SourceError(f"{args.out!r} can't be resolved (a symlink loop?): {error}") from error
             if folder != source.root and source.root not in folder.parents:
                 raise SourceError(f"{args.out!r} is outside the content folder")
             path = write_spec(spec, folder / out.name)
