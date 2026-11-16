@@ -201,6 +201,31 @@ class ReviewTest(PacketTestCase):
         self.assertEqual(code, 1)
         self.assertIn("not an editorial packet", err)
 
+    def test_the_sheet_marks_exactly_what_the_check_found(self):
+        # A quotation naming the original file explicitly doesn't exempt the
+        # original's words in build_packet; the sheet must agree (Codex on #10).
+        self.write("original.txt", "cat\n")
+        spec = {"changes": [], "quotations": [{"text": "cat", "source": "original.txt"}]}
+        packet = self.packet_dict(spec, '"cat"\n')
+        self.assertFalse(next(c for c in packet["checks"] if c["name"] == "changes-labelled")["ok"])
+        self.assertEqual(packet["unlabelled"], {"edition": [], "original": [[0, 3]]})
+        page = render_review(packet, source=self.source)
+        self.assertIn('<span class="loose quote">cat</span>', page)
+        self.assertIn("1 unlabelled word(s)", page)
+
+    def test_packets_without_the_record_fall_back_to_the_sheets_reading(self):
+        edition = EDITION.replace("kept watch", "kept a long watch")
+        packet = self.packet_dict(edition=edition)
+        del packet["unlabelled"]  # as written before the record existed
+        page = render_review(packet, source=self.source)
+        self.assertIn("2 unlabelled word(s)", page)
+
+    def test_a_malformed_record_is_ignored_not_trusted(self):
+        packet = self.packet_dict()
+        packet["unlabelled"] = {"edition": [[0, 10**9], "x", [5, 2]], "original": None}
+        page = render_review(packet, source=self.source)
+        self.assertNotRegex(page, LOOSE_MARK)
+
     def test_not_a_packet_is_refused(self):
         with self.assertRaises(RecordError):
             render_review({"format": "something else"})

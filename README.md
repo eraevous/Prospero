@@ -71,6 +71,8 @@ has no scripts and loads nothing from the network, so it opens offline beside th
 python3 -m prospero.packet --home ~/prospero-content review packets/first.packet.json   # writes packets/first.review.html
 ```
 
+Packets now record the exact words the `changes-labelled` check found unlabelled (`"unlabelled"`, character offsets on each side), and the sheet draws those, so it can't disagree with the check; for older packets it falls back to its own reading.
+
 The sheet records nothing: deciding is still `decide`, whose commands the sheet prints. It re-checks the original's
 hash and says plainly when the original has changed since the packet was built. `review` exits 1 when a check failed
 or the original changed (the sheet is still written, so the problems can be seen).

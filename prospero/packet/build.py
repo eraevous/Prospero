@@ -86,6 +86,10 @@ class Packet:
     checks: list[Check]
     # A revision names its parent packet: {"name", "sha256"} (see lineage.py).
     parent: dict | None = None
+    # Every word the changes-labelled check found unlabelled, as [start, end]
+    # character offsets on each side. Recorded so a view (review.py) shows
+    # exactly what the check found instead of re-deriving it.
+    unlabelled: dict | None = None
 
     @property
     def ok(self) -> bool:
@@ -101,6 +105,7 @@ class Packet:
             "checks": [{"name": c.name, "ok": c.ok, "problems": c.problems} for c in self.checks],
             "ok": self.ok,
             "parent": self.parent,
+            "unlabelled": self.unlabelled,
         }
 
 
@@ -222,12 +227,15 @@ def build_packet(source: Source, original_name: str, edition_name: str, spec: di
     # deletion is caught even when it is folded into a replacement.
     labelled_edition = [s for _, _, s, _ in change_spans if s] + quoted_spans
     labelled_original = [s for _, _, _, s in change_spans if s] + quoted_in_original
+    unlabelled = {"edition": [], "original": []}
     for diff in _differences(original, edition):
         loose = [w for w in diff["edition_words"] if not _covered(w, labelled_edition)]
+        unlabelled["edition"].extend([start, end] for start, end in loose)
         if loose:
             label_problems.append(f"unlabelled change at edition line {line_of(edition, loose[0][0])}: "
                                   f"{edition[loose[0][0]:loose[-1][1]]!r}")
         cut = [w for w in diff["original_words"] if not _covered(w, labelled_original)]
+        unlabelled["original"].extend([start, end] for start, end in cut)
         if cut:
             label_problems.append(f"unlabelled change to original line {line_of(original, cut[0][0])}: "
                                   f"{original[cut[0][0]:cut[-1][1]]!r} (name it as original_text)")
@@ -292,4 +300,5 @@ def build_packet(source: Source, original_name: str, edition_name: str, spec: di
             Check("no-interpretation-as-quotation", not interp_problems, interp_problems),
         ],
         parent=parent,
+        unlabelled=unlabelled,
     )

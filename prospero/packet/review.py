@@ -147,7 +147,22 @@ def _marks(packet: dict) -> tuple[list, list]:
             start = locator.get("offset")
             if isinstance(start, int) and original[start:start + len(quote["text"])] == quote["text"]:
                 orig_marks.append((start, start + len(quote["text"]), "quote", None))
-    # Unlabelled differences, word by word, on both sides.
+    # Unlabelled words. A packet built by this version records exactly what
+    # the changes-labelled check found, and the sheet draws that (Codex on
+    # #10: re-deriving the builder's coverage rules here kept drifting from
+    # them). Older packets lack the record, so for them the sheet falls back
+    # to its own reading, which can differ in edge cases.
+    recorded = packet.get("unlabelled")
+    if isinstance(recorded, dict):
+        for side, marks, text in (("edition", ed_marks, edition), ("original", orig_marks, original)):
+            spans = recorded.get(side)
+            for span in spans if isinstance(spans, list) else []:
+                if (isinstance(span, list) and len(span) == 2 and all(isinstance(x, int) for x in span)
+                        and 0 <= span[0] < span[1] <= len(text)):
+                    marks.append((span[0], span[1], "loose", None))
+        return orig_marks, ed_marks
+    # Fallback for packets without the record: unlabelled differences, word
+    # by word, on both sides.
     # Only *declared* quotations exempt their words, as in build_packet: an
     # undeclared quotation is an unlabelled change and must show (Codex on #10).
     ed_known = [(s, e) for s, e, *_ in ed_marks] + [

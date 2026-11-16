@@ -74,6 +74,13 @@ class BuildTest(PacketTestCase):
         self.assertTrue(packet.ok, [c for c in packet.checks if not c.ok])
         self.assertEqual(packet.original, ORIGINAL)
 
+    def test_unlabelled_words_are_recorded_with_offsets(self):
+        self.assertEqual(self.build().to_dict()["unlabelled"], {"edition": [], "original": []})
+        edition = EDITION.replace("kept watch", "kept a long watch")
+        recorded = self.build(edition=edition).to_dict()["unlabelled"]
+        self.assertEqual([edition[s:e] for s, e in recorded["edition"]], ["a", "long"])
+        self.assertEqual(recorded["original"], [])
+
     def test_quotation_resolves_to_a_locator_in_the_original(self):
         quote = self.build().quotations[0]
         self.assertEqual(quote["speaker"], "Marta")
