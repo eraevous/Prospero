@@ -444,3 +444,22 @@ class CodexReviewOn831Test(LineageTestCase):
         self.assertFalse(h.ok)
         self.assertTrue(any("second.packet.json" in p and "unreadable" in p for p in h.problems), h.problems)
         self.assertIn(first, h.packets)
+
+
+class KateRound3Test(LineageTestCase):
+    """Kate's round-3 review on #9: a recorded decision must agree with its packet."""
+
+    def test_decision_whose_metadata_contradicts_its_packet_is_a_problem(self):
+        first = self.make("first", EDITION, SPEC)
+        entry = self.decide(first, "accept")
+        with open(self.home / "decisions.jsonl", "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(dict(entry, original_sha256="wrong-original-hash", edition="wrong-edition.txt",
+                                         edition_sha256="wrong-edition-hash")) + "\n")
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("contradict" in p and "edition_sha256" in p for p in h.problems), h.problems)
+
+    def test_consistent_decision_stays_ok(self):
+        first = self.make("first", EDITION, SPEC)
+        self.decide(first, "accept")
+        self.assertTrue(history(self.source, "original.txt").ok)

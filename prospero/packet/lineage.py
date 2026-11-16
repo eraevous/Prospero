@@ -279,6 +279,16 @@ def _read_decisions(source: Source, original: str, nodes: dict[str, Node], probl
             if not matched:
                 problems.append(f"{where}: decides {entry['packet']}, which isn't here with that hash "
                                 f"(missing, renamed or changed since)")
+            else:
+                # The line's own description of what was decided must agree
+                # with the packet it names (Kate's round-3 review on #9).
+                clash = [field for field, mine in (("original_sha256", node.original_sha256),
+                                                   ("edition", node.edition),
+                                                   ("edition_sha256", node.edition_sha256))
+                         if entry[field] != mine]
+                if clash:
+                    problems.append(f"{where}: {', '.join(clash)} contradict{'s' if len(clash) == 1 else ''} "
+                                    f"the packet it names ({named})")
             link = "recorded"
         else:
             # Older lines name only the original and edition. Every packet with
