@@ -11,10 +11,11 @@ has agreed it, lands on a base that already has:
 
 The first increment is ``prospero.packet``: editorial packets (an original, a
 proposed edition, labelled changes and resolved quotations) and the decision
-log for them (handoff HO-PRO-20261109-CDAD).
+log for them (handoff HO-PRO-20261109-CDAD). The second adds revisions that
+name their parent packet, and a history of each original (HO-PRO-20261116-P8CB).
 
 Product direction comes from Zach. Nothing in this package decides scope.
 """
 
 # Semantic versioning; 0.x means the interface can still change.
-__version__ = "0.1.0"
+__version__ = "0.2.0"

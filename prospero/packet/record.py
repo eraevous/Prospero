@@ -125,13 +125,18 @@ def _open_log(folder: Path, original: Path | None):
 
 
 def record_decision(log_dir: str | Path, packet_dict: dict, source: Source, decision: str,
-                    by: str, note: str = "", now: datetime | None = None) -> dict:
+                    by: str, note: str = "", now: datetime | None = None,
+                    packet_name: str | None = None, packet_sha256: str | None = None) -> dict:
     """Append one decision line for a packet and return it.
 
     Before writing, the original is re-read and its hash compared with the one
     in the packet. If the original has changed since the packet was built, the
     decision is refused: Zach would be deciding about a text that no longer
     exists. Recording a decision never touches the original, whichever it is.
+
+    ``packet_name`` and ``packet_sha256`` (the packet file's hash) name exactly
+    which packet is decided, so history can tell two revisions with the same
+    edition apart. Lines written before increment 2 lack them.
     """
     if decision not in DECISIONS:
         raise RecordError(f"decision must be one of {', '.join(DECISIONS)}")
@@ -152,6 +157,12 @@ def record_decision(log_dir: str | Path, packet_dict: dict, source: Source, deci
         "checks_ok": packet_dict.get("ok"),
         "note": note,
     }
+    if bool(packet_name) != bool(packet_sha256):
+        # History needs both or neither (Copilot review on #9).
+        raise RecordError("packet_name and packet_sha256 go together: give both or neither")
+    if packet_sha256:
+        entry["packet"] = packet_name
+        entry["packet_sha256"] = packet_sha256
     folder = _outside_repo(Path(log_dir))
     folder.mkdir(parents=True, exist_ok=True)
     # Sources that live on disk can say where the original is, so the log can

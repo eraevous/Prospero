@@ -14,12 +14,24 @@ swap in another backend.
 
 from __future__ import annotations
 
+import fnmatch
 import os
 from pathlib import Path
 
 
 class SourceError(Exception):
     """A text could not be read from a source (missing, or outside the source)."""
+
+
+def _resolve(path: Path, name: str) -> Path:
+    """``path.resolve()``, with a symlink loop or an OS error reported as a
+    ``SourceError`` (Codex review on #9: on Python 3.10-3.12 a loop raises
+    ``RuntimeError``, which would escape every caller)."""
+    try:
+        return path.resolve()
+    except (RuntimeError, OSError, ValueError) as error:
+        # ValueError: a name with a NUL in it (Copilot review on #9 at a8efb67).
+        raise SourceError(f"{name!r} can't be resolved (a symlink loop?): {error}") from error
 
 
 class Source:
@@ -54,12 +66,44 @@ class FolderSource(Source):
 
     def path_of(self, name: str) -> Path:
         """Return the real path for ``name``, or raise if it leaves the folder."""
-        candidate = (self.root / name).resolve()
+        candidate = _resolve(self.root / name, name)
         if candidate != self.root and self.root not in candidate.parents:
             raise SourceError(f"{name!r} is outside the source folder")
         if not candidate.is_file():
             raise SourceError(f"{name!r} not found in source {self.name!r}")
         return candidate
+
+    def canonical(self, name: str) -> str:
+        """The one spelling of ``name`` used in records: relative to the
+        folder, ``/``-separated, with ``./`` and ``..`` folded away. Raises
+        ``SourceError`` like ``path_of`` when the file isn't there."""
+        return self.path_of(name).relative_to(self.root).as_posix()
+
+    def names(self, folder: str, pattern: str) -> list[str]:
+        """Names (relative to the source, ``/``-separated) of entries matching
+        ``pattern`` directly in ``folder``, sorted. Nothing is opened here. A
+        name may still fail ``path_of`` or ``read`` (a dangling symlink, or one
+        pointing out of the source); it is listed anyway so the caller can
+        report it rather than have it vanish (Codex review on #9). An absent
+        folder has no names; one that exists but isn't a folder, or leads out
+        of the source, raises ``SourceError``."""
+        base = self.root / folder
+        if not os.path.lexists(base):
+            return []
+        # Containment first, so a packets/ symlinked out of the source is
+        # refused before anything there is listed (Copilot review on #9).
+        real = _resolve(base, folder)
+        if real != self.root and self.root not in real.parents:
+            raise SourceError(f"{folder!r} points outside the source folder")
+        if not real.is_dir():
+            raise SourceError(f"{folder!r} exists but is not a folder (or is a broken link)")
+        # os.listdir, not Path.glob: glob swallows a PermissionError and would
+        # make an unreadable packets/ look empty (Copilot review on #9 at a8efb67).
+        try:
+            entries = os.listdir(real)
+        except OSError as error:
+            raise SourceError(f"{folder!r} can't be listed: {error}") from error
+        return [f"{folder}/{entry}" for entry in sorted(fnmatch.filter(entries, pattern))]
 
     def read(self, name: str) -> str:
         # newline="" keeps the bytes as they are (no \r\n translation), so the
