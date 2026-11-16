@@ -240,3 +240,46 @@ class HistoryCommandLineTest(LineageTestCase):
                                     "--parent", "notes.json")
         self.assertEqual(code, 1)
         self.assertIn("not a packet", err)
+
+
+class CodexReviewOn9Test(LineageTestCase):
+    """Codex's three P2 findings on #9 (commit 58fdf78), each failing before its fix."""
+
+    def test_older_decision_line_for_a_missing_packet_is_a_problem(self):
+        first = self.make("first", EDITION, SPEC)
+        record_decision(self.home, json.loads(self.source.read(first)), self.source, "accept", "zach")
+        (self.home / first).unlink()
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("no packet here" in p for p in h.problems), h.problems)
+
+    def test_malformed_nested_fields_are_reported_not_raised(self):
+        self.make("first", EDITION, SPEC)
+        for stem, data in (("e", {"original": {"name": "original.txt", "sha256": "x"}, "edition": None}),
+                           ("o", {"original": None, "edition": {}}),
+                           ("p", {"original": {"name": "original.txt", "sha256": sha256(ORIGINAL)},
+                                  "edition": {"name": "e.txt", "sha256": "y"}, "parent": "packets/first.packet.json"}),
+                           ("l", [1, 2])):
+            (self.home / "packets" / f"{stem}.packet.json").write_text(json.dumps(data), encoding="utf-8")
+        h = history(self.source, "original.txt")
+        self.assertEqual(sum("unreadable packet" in p for p in h.problems), 4, h.problems)
+        self.assertIn("packets/first.packet.json", h.packets)
+
+    def test_equivalent_parent_spelling_links_to_the_same_packet(self):
+        first = self.make("first", EDITION, SPEC)
+        second = self.make("second", EDITION_2, SPEC_2, parent="./packets/../packets/first.packet.json")
+        self.assertEqual(json.loads(self.source.read(second))["parent"]["name"], first)
+        h = history(self.source, "original.txt")
+        self.assertTrue(h.ok, h.problems)
+        self.assertEqual(h.roots(), [first])
+
+    def test_packet_written_with_an_unnormalised_parent_still_links(self):
+        first = self.make("first", EDITION, SPEC)
+        second = self.make("second", EDITION_2, SPEC_2, parent=first)
+        data = json.loads(self.source.read(second))
+        data["parent"]["name"] = "./" + first
+        (self.home / second).write_text(json.dumps(data), encoding="utf-8")
+        h = history(self.source, "original.txt")
+        self.assertTrue(h.ok, h.problems)
+        self.assertEqual(h.packets[first].children, [second])
+        self.assertEqual(h.roots(), [first])

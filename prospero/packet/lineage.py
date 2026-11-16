@@ -32,6 +32,30 @@ from dataclasses import dataclass, field
 from .build import sha256
 from .sources import Source, SourceError
 
+
+def _canonical(source: Source, name: str) -> str:
+    """The name a record should use for ``name`` (Codex review on #9: an
+    equivalent spelling such as ``./packets/x`` must link to the same packet).
+    Sources without ``canonical`` keep names as given."""
+    return source.canonical(name) if hasattr(source, "canonical") else name
+
+
+def _packet_fields(data) -> tuple[dict, dict, dict | None]:
+    """The original, edition and parent of a parsed packet, or ValueError if any
+    has the wrong shape (Codex review on #9: valid JSON with ``"edition": null``
+    must be reported as a corrupt packet, not crash history)."""
+    if not isinstance(data, dict):
+        raise ValueError("not a JSON object")
+    original, edition, parent = data.get("original"), data.get("edition"), data.get("parent")
+    for label, part in (("original", original), ("edition", edition)):
+        if not isinstance(part, dict) or not isinstance(part.get("name"), str) \
+                or not isinstance(part.get("sha256"), str):
+            raise ValueError(f"{label} must be an object with a name and sha256")
+    if parent is not None and not (isinstance(parent, dict) and isinstance(parent.get("name"), str)
+                                   and isinstance(parent.get("sha256"), str)):
+        raise ValueError("parent must be null or an object with a name and sha256")
+    return original, edition, parent
+
 PACKETS = "packets"
 DECISION_LOG = "decisions.jsonl"
 
@@ -48,11 +72,11 @@ def parent_ref(source: Source, parent_name: str, original_name: str) -> dict:
     where ``sha256`` is the hash of the parent file's text, so a later edit to
     the parent breaks the link visibly instead of silently.
     """
+    parent_name = _canonical(source, parent_name)
     text = source.read(parent_name)
     try:
-        parent = json.loads(text)
-        parent_original = parent["original"]
-    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        parent_original, _, _ = _packet_fields(json.loads(text))
+    except (json.JSONDecodeError, ValueError) as error:
         raise LineageError(f"{parent_name} is not a packet: {error}") from error
     if parent_original.get("name") != original_name:
         raise LineageError(f"{parent_name} is a packet for {parent_original.get('name')!r}, not {original_name!r}")
@@ -73,6 +97,9 @@ class Node:
     checks_ok: bool | None
     parent: dict | None
     children: list[str] = field(default_factory=list)
+    # The parent this packet was actually linked to, by canonical name (None
+    # when it has no parent or the link is broken).
+    linked_parent: str | None = None
     decisions: list[dict] = field(default_factory=list)
 
 
@@ -90,8 +117,7 @@ class History:
 
     def roots(self) -> list[str]:
         """Packets with no parent (or a parent that couldn't be linked), by name."""
-        return sorted(n for n, node in self.packets.items()
-                      if node.parent is None or node.parent.get("name") not in self.packets)
+        return sorted(n for n, node in self.packets.items() if node.linked_parent is None)
 
     def to_dict(self) -> dict:
         return {
@@ -112,18 +138,17 @@ def _read_packets(source: Source, original: str, problems: list[str]) -> dict[st
         try:
             text = source.read(name)
             data = json.loads(text)
-            data_original = data["original"]
-            edition = data["edition"]
-        except (SourceError, json.JSONDecodeError, KeyError, TypeError) as error:
+            data_original, edition, parent = _packet_fields(data)
+        except (SourceError, json.JSONDecodeError, ValueError) as error:
             # Report it: a corrupt packet might belong to this original, and
             # dropping it would make the history look complete when it isn't.
             problems.append(f"{name}: unreadable packet ({error})")
             continue
-        if data_original.get("name") != original:
+        if data_original["name"] != original:
             continue
-        nodes[name] = Node(name=name, sha256=sha256(text), original_sha256=data_original.get("sha256", ""),
-                           edition=edition.get("name", ""), edition_sha256=edition.get("sha256", ""),
-                           checks_ok=data.get("ok"), parent=data.get("parent"))
+        nodes[name] = Node(name=name, sha256=sha256(text), original_sha256=data_original["sha256"],
+                           edition=edition["name"], edition_sha256=edition["sha256"],
+                           checks_ok=data.get("ok"), parent=parent)
     return nodes
 
 
@@ -133,20 +158,22 @@ def _check_links(source: Source, nodes: dict[str, Node], current: str, problems:
             problems.append(f"{name}: built from different bytes of the original than it holds now")
         if node.parent is None:
             continue
-        parent_name, parent_hash = node.parent.get("name"), node.parent.get("sha256")
+        parent_name, parent_hash = node.parent["name"], node.parent["sha256"]
+        try:
+            parent_name = _canonical(source, parent_name)
+        except SourceError:
+            problems.append(f"{name}: parent {parent_name} is missing")
+            continue
         parent = nodes.get(parent_name)
         if parent is None:
-            try:
-                source.read(parent_name)
-                problems.append(f"{name}: parent {parent_name} is a packet for another original")
-            except (SourceError, TypeError):
-                problems.append(f"{name}: parent {parent_name} is missing")
+            problems.append(f"{name}: parent {parent_name} is a packet for another original, or unreadable")
             continue
         if parent.sha256 != parent_hash:
             problems.append(f"{name}: parent {parent_name} has changed since this revision was built")
         if parent.original_sha256 != node.original_sha256:
             problems.append(f"{name}: parent {parent_name} was built from different bytes of the original")
         parent.children.append(name)
+        node.linked_parent = parent_name
     for node in nodes.values():
         node.children.sort()
     # Content hashes make a true cycle practically impossible, but a parent
@@ -158,7 +185,10 @@ def _check_links(source: Source, nodes: dict[str, Node], current: str, problems:
                 problems.append(f"{name}: its ancestry loops back on itself")
                 break
             seen.add(cursor)
-            cursor = nodes[cursor].parent.get("name")
+            try:
+                cursor = _canonical(source, nodes[cursor].parent["name"])
+            except SourceError:
+                break
 
 
 def _read_decisions(source: Source, original: str, nodes: dict[str, Node], problems: list[str]) -> list[dict]:
@@ -190,6 +220,11 @@ def _read_decisions(source: Source, original: str, nodes: dict[str, Node], probl
             matched = [n for n in nodes.values()
                        if n.edition_sha256 == entry.get("edition_sha256")
                        and n.original_sha256 == entry.get("original_sha256")]
+            if not matched:
+                # Codex review on #9: a missing packet is a problem for older
+                # lines too, or history looks complete when it isn't.
+                problems.append(f"{DECISION_LOG} line {number}: decides edition {entry.get('edition', '?')}, "
+                                f"but no packet here has that original and edition")
         event = {"line": number, "at": entry.get("at"), "decision": entry.get("decision"), "by": entry.get("by"),
                  "note": entry.get("note", ""), "packets": sorted(n.name for n in matched)}
         if not entry.get("packet_sha256") and len(matched) > 1:

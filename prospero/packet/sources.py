@@ -61,6 +61,12 @@ class FolderSource(Source):
             raise SourceError(f"{name!r} not found in source {self.name!r}")
         return candidate
 
+    def canonical(self, name: str) -> str:
+        """The one spelling of ``name`` used in records: relative to the
+        folder, ``/``-separated, with ``./`` and ``..`` folded away. Raises
+        ``SourceError`` like ``path_of`` when the file isn't there."""
+        return self.path_of(name).relative_to(self.root).as_posix()
+
     def names(self, folder: str, pattern: str) -> list[str]:
         """Names (relative to the source, ``/``-separated) of files matching
         ``pattern`` directly in ``folder``, sorted. Each passes ``path_of``, so a
