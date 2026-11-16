@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 from contextlib import redirect_stderr, redirect_stdout
 
-from prospero.packet import LineageError, history, parent_ref, record_decision, render_history, write_packet
+from prospero.packet import LineageError, RecordError, history, parent_ref, record_decision, render_history, write_packet
 from prospero.packet.__main__ import main
 from prospero.packet.build import build_packet, sha256
 
@@ -498,3 +498,59 @@ class CodexReviewOn847Test(LineageTestCase):
             self.skipTest(f"symlinks unavailable: {error}")
         h = history(self.source, "original.txt")
         self.assertTrue(any("out.packet.json" in p and "outside" in p for p in h.problems), h.problems)
+
+
+class CopilotReviewOn9Test(LineageTestCase):
+    """Copilot's five findings on #9 at fe16c32."""
+
+    def test_unicode_line_separator_in_a_note_stays_one_record(self):
+        first = self.make("first", EDITION, SPEC)
+        text = self.source.read(first)
+        record_decision(self.home, json.loads(text), self.source, "accept", "zach", note="one two",
+                        packet_name=first, packet_sha256=sha256(text))
+        h = history(self.source, "original.txt")
+        self.assertTrue(h.ok, h.problems)
+        self.assertEqual(h.events[0]["note"], "one two")
+
+    def test_malformed_line_naming_another_original_is_still_a_problem(self):
+        self.make("first", EDITION, SPEC)
+        with open(self.home / "decisions.jsonl", "a", encoding="utf-8") as handle:
+            handle.write('{"original": ""}\n')
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("malformed decision" in p for p in h.problems), h.problems)
+
+    def test_recorder_refuses_half_a_packet_reference(self):
+        first = self.make("first", EDITION, SPEC)
+        packet = json.loads(self.source.read(first))
+        for kwargs in ({"packet_name": first}, {"packet_sha256": "a" * 64}):
+            with self.assertRaises(RecordError, msg=kwargs):
+                record_decision(self.home, packet, self.source, "accept", "zach", **kwargs)
+        self.assertFalse((self.home / "decisions.jsonl").exists())
+
+    def test_packets_that_is_a_file_is_a_problem(self):
+        (self.home / "packets").write_text("not a folder", encoding="utf-8")
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("not a folder" in p for p in h.problems), h.problems)
+
+    def test_packets_dangling_link_is_a_problem(self):
+        try:
+            os.symlink(Path(self._tmp.name) / "gone", self.home / "packets", target_is_directory=True)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok, h.problems)
+
+    def test_packets_linked_outside_is_refused_before_listing(self):
+        outside = Path(self._tmp.name) / "elsewhere"
+        outside.mkdir()
+        (outside / "secret-name.packet.json").write_text("{}", encoding="utf-8")
+        try:
+            os.symlink(outside, self.home / "packets", target_is_directory=True)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("outside the source folder" in p for p in h.problems), h.problems)
+        self.assertFalse(any("secret-name" in p for p in h.problems), h.problems)

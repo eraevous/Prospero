@@ -152,7 +152,14 @@ class History:
 
 def _read_packets(source: Source, original: str, problems: list[str]) -> dict[str, Node]:
     nodes = {}
-    for listed in source.names(PACKETS, "*.packet.json"):
+    try:
+        listed_names = source.names(PACKETS, "*.packet.json")
+    except SourceError as error:
+        # A packets/ that exists but isn't a usable folder inside the content
+        # folder is a problem, not an empty history (Copilot review on #9).
+        problems.append(f"{PACKETS}/: {error}")
+        listed_names = []
+    for listed in listed_names:
         # Key every packet by the same canonical name parent references use
         # (Codex review on #9: with packets/ a symlink inside the content
         # folder, the listed and canonical spellings differ).
@@ -244,7 +251,9 @@ REQUIRED = ("at", "decision", "by", "original", "original_sha256", "edition", "e
 
 def _read_decisions(source: Source, original: str, nodes: dict[str, Node], problems: list[str]) -> list[dict]:
     events = []
-    for number, line in enumerate(_read_log(source, problems).splitlines(), start=1):
+    # Split on LF only (Copilot review on #9): notes are written with
+    # ensure_ascii=False, so a U+2028 inside a note is not a record boundary.
+    for number, line in enumerate(_read_log(source, problems).split("\n"), start=1):
         if not line.strip():
             continue
         where = f"{DECISION_LOG} line {number}"
@@ -256,8 +265,6 @@ def _read_decisions(source: Source, original: str, nodes: dict[str, Node], probl
         if not isinstance(entry, dict) or not isinstance(entry.get("original"), str):
             problems.append(f"{where}: unreadable (not a decision record)")
             continue
-        if not _same_original(source, entry["original"], original):
-            continue
         missing = [k for k in REQUIRED if not isinstance(entry.get(k), str) or not entry[k]]
         if entry.get("decision") not in DECISIONS:
             missing.append("decision (accept, reject or revise)")
@@ -268,7 +275,11 @@ def _read_decisions(source: Source, original: str, nodes: dict[str, Node], probl
             # corrupt; it must not fall back to the legacy match.
             missing.append("packet and packet_sha256 together")
         if missing:
+            # Reported whatever original it names (Copilot review on #9): a
+            # corrupt line can't be trusted to say it belongs elsewhere.
             problems.append(f"{where}: malformed decision, missing or invalid {', '.join(dict.fromkeys(missing))}")
+            continue
+        if not _same_original(source, entry["original"], original):
             continue
 
         if has_packet:

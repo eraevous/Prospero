@@ -146,6 +146,9 @@ def record_decision(log_dir: str | Path, packet_dict: dict, source: Source, deci
         "checks_ok": packet_dict.get("ok"),
         "note": note,
     }
+    if bool(packet_name) != bool(packet_sha256):
+        # History needs both or neither (Copilot review on #9).
+        raise RecordError("packet_name and packet_sha256 go together: give both or neither")
     if packet_sha256:
         entry["packet"] = packet_name
         entry["packet_sha256"] = packet_sha256

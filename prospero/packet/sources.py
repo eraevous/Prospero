@@ -73,11 +73,19 @@ class FolderSource(Source):
         name may still fail ``path_of`` or ``read`` (a dangling symlink, or one
         pointing out of the source); it is listed anyway so the caller can
         report it rather than have it vanish (Codex review on #9). An absent
-        folder has no names."""
+        folder has no names; one that exists but isn't a folder, or leads out
+        of the source, raises ``SourceError``."""
         base = self.root / folder
-        if not base.is_dir():
+        if not os.path.lexists(base):
             return []
-        return [f"{folder}/{path.name}" for path in sorted(base.glob(pattern))]
+        # Containment first, so a packets/ symlinked out of the source is
+        # refused before anything there is listed (Copilot review on #9).
+        real = base.resolve()
+        if real != self.root and self.root not in real.parents:
+            raise SourceError(f"{folder!r} points outside the source folder")
+        if not real.is_dir():
+            raise SourceError(f"{folder!r} exists but is not a folder (or is a broken link)")
+        return [f"{folder}/{path.name}" for path in sorted(real.glob(pattern))]
 
     def read(self, name: str) -> str:
         # newline="" keeps the bytes as they are (no \r\n translation), so the
