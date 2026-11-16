@@ -30,6 +30,7 @@ first occurrence, so a bare ``the`` would otherwise point at the wrong place.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from .build import QUOTE_RE, _covered, _differences, _find_span, _word_spans
@@ -107,6 +108,11 @@ def write_spec(spec: dict, out_path: Path) -> Path:
     folder = _outside_repo(out_path.parent)
     path = folder / out_path.name
     folder.mkdir(parents=True, exist_ok=True)
+    # lexists, not exists: a dangling symlink counts as taken. Mode "x" alone
+    # is not enough: on Windows it follows a dangling link and creates the
+    # target (CI on #11), so check the name itself first, as write_packet does.
+    if os.path.lexists(path):
+        raise RecordError(f"{path.name} already exists; choose another name")
     try:
         # Mode "x": create or fail; never follows a planted symlink.
         with open(path, "x", encoding="utf-8") as handle:
