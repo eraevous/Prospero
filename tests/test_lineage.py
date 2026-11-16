@@ -463,3 +463,38 @@ class KateRound3Test(LineageTestCase):
         first = self.make("first", EDITION, SPEC)
         self.decide(first, "accept")
         self.assertTrue(history(self.source, "original.txt").ok)
+
+
+class CodexReviewOn847Test(LineageTestCase):
+    """Codex's two P2 findings on #9 at 847a827."""
+
+    def test_non_boolean_ok_is_a_corrupt_packet_not_a_crash(self):
+        first = self.make("first", EDITION, SPEC)
+        for stem, value in (("l", []), ("d", {})):
+            data = json.loads(self.source.read(first))
+            data["ok"] = value
+            (self.home / "packets" / f"{stem}.packet.json").write_text(json.dumps(data), encoding="utf-8")
+        h = history(self.source, "original.txt")
+        self.assertEqual(sum("unreadable packet" in p for p in h.problems), 2, h.problems)
+        render_history(h)  # must not raise
+
+    def test_dangling_packet_link_is_reported(self):
+        (self.home / "packets").mkdir()
+        try:
+            os.symlink(Path(self._tmp.name) / "gone.json", self.home / "packets" / "first.packet.json")
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("first.packet.json" in p for p in h.problems), h.problems)
+
+    def test_packet_link_out_of_the_folder_is_reported_not_read(self):
+        outside = Path(self._tmp.name) / "outside.packet.json"
+        outside.write_text("{}", encoding="utf-8")
+        (self.home / "packets").mkdir()
+        try:
+            os.symlink(outside, self.home / "packets" / "out.packet.json")
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+        h = history(self.source, "original.txt")
+        self.assertTrue(any("out.packet.json" in p and "outside" in p for p in h.problems), h.problems)

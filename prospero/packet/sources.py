@@ -68,22 +68,16 @@ class FolderSource(Source):
         return self.path_of(name).relative_to(self.root).as_posix()
 
     def names(self, folder: str, pattern: str) -> list[str]:
-        """Names (relative to the source, ``/``-separated) of files matching
-        ``pattern`` directly in ``folder``, sorted. Each passes ``path_of``, so a
-        symlink pointing out of the source is left out, as ``read`` would refuse it.
-        An absent folder has no names."""
+        """Names (relative to the source, ``/``-separated) of entries matching
+        ``pattern`` directly in ``folder``, sorted. Nothing is opened here. A
+        name may still fail ``path_of`` or ``read`` (a dangling symlink, or one
+        pointing out of the source); it is listed anyway so the caller can
+        report it rather than have it vanish (Codex review on #9). An absent
+        folder has no names."""
         base = self.root / folder
         if not base.is_dir():
             return []
-        found = []
-        for path in sorted(base.glob(pattern)):
-            name = f"{folder}/{path.name}"
-            try:
-                self.path_of(name)
-            except SourceError:
-                continue
-            found.append(name)
-        return found
+        return [f"{folder}/{path.name}" for path in sorted(base.glob(pattern))]
 
     def read(self, name: str) -> str:
         # newline="" keeps the bytes as they are (no \r\n translation), so the

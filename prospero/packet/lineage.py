@@ -64,6 +64,10 @@ def _packet_fields(data) -> tuple[dict, dict, dict | None]:
         if not isinstance(part, dict) or not isinstance(part.get("name"), str) \
                 or not isinstance(part.get("sha256"), str):
             raise ValueError(f"{label} must be an object with a name and sha256")
+    if data.get("ok") is not None and not isinstance(data.get("ok"), bool):
+        # Codex review on #9: "ok" is rendered as a lookup key, so a list or
+        # object there must be caught here, not crash the report.
+        raise ValueError("ok must be true, false or absent")
     if parent is not None and not (isinstance(parent, dict) and isinstance(parent.get("name"), str)
                                    and isinstance(parent.get("sha256"), str)):
         raise ValueError("parent must be null or an object with a name and sha256")
