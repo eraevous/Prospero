@@ -64,11 +64,23 @@ def _segments(text: str, marks: list[tuple[int, int, str, str | None]]) -> str:
     target (Codex on #10).
     """
     cuts = sorted({0, len(text)} | {p for s, e, _, _ in marks for p in (s, e)})
+    # Sweep: marks open and close at cut points, so the marks covering a piece
+    # are kept as a running set instead of rescanning every mark per piece
+    # (Copilot on #10: thousands of unlabelled words made that quadratic).
+    opening: dict[int, list[int]] = {}
+    closing: dict[int, list[int]] = {}
+    for index, (s, e, _, _) in enumerate(marks):
+        if s < e:
+            opening.setdefault(s, []).append(index)
+            closing.setdefault(e, []).append(index)
+    active: set[int] = set()
     placed: set[str] = set()
     out = []
     for start, end in zip(cuts, cuts[1:]):
+        active.difference_update(closing.get(start, ()))
+        active.update(opening.get(start, ()))
         piece = html.escape(text[start:end])
-        covering = [m for m in marks if m[0] <= start and end <= m[1]]
+        covering = [marks[i] for i in sorted(active)]
         if not covering:
             out.append(piece)
             continue
@@ -111,11 +123,24 @@ def _marks(packet: dict) -> tuple[list, list]:
     # them, with QUOTE_RE, not by searching for the words, which could hit an
     # unquoted earlier copy; Codex on #10), and the place in the original its
     # locator names.
-    declared = {quote["text"] for quote in packet.get("quotations", [])}
+    # The packet keeps only quotations that resolved. One that was declared
+    # but failed to resolve still counts as declared for changes-labelled, so
+    # it must not be marked unlabelled (Copilot on #10). The builder names an
+    # undeclared quotation in a quotations-resolve problem; every other quoted
+    # passage was declared.
+    resolved = {quote["text"] for quote in packet.get("quotations", [])}
+    problems = [p for c in packet.get("checks", []) if c.get("name") == "quotations-resolve"
+                for p in c.get("problems", [])]
+    declared = set()
     for match in QUOTE_RE.finditer(edition):
         group = 1 if match.group(1) is not None else 2
-        if match.group(group) in declared:
+        words = match.group(group)
+        if words in resolved:
+            declared.add(words)
             ed_marks.append((match.start(group), match.end(group), "quote", None))
+        elif not any(p.endswith(f"is not declared: {words!r}") for p in problems):
+            declared.add(words)  # declared, but it did not resolve: show that
+            ed_marks.append((match.start(group), match.end(group), "quote badquote", None))
     for quote in packet.get("quotations", []):
         locator = quote.get("locator", {})
         if locator.get("name") == packet["original"]["name"]:
@@ -145,7 +170,9 @@ def original_status(packet: dict, source: Source | None) -> tuple[bool | None, s
         return None, "original on disk not checked"
     try:
         current = sha256(source.read(packet["original"]["name"]))
-    except SourceError as error:
+    except (SourceError, OSError, UnicodeDecodeError) as error:
+        # Not only SourceError: an unreadable or non-UTF-8 original must show
+        # as a failed status on the sheet, not crash it (Copilot on #10).
         return False, f"original could not be read: {error}"
     if current != packet["original"]["sha256"]:
         return False, "the original has changed since this packet was built; rebuild it before deciding"
@@ -154,8 +181,9 @@ def original_status(packet: dict, source: Source | None) -> tuple[bool | None, s
 
 def render_review(packet: dict, packet_name: str = "PACKET.json", source: Source | None = None) -> str:
     """The review sheet for one packet (a dict as written by ``write_packet``)."""
-    if packet.get("format") != FORMAT:
-        raise RecordError(f"not an editorial packet (format {packet.get('format')!r})")
+    if not isinstance(packet, dict) or packet.get("format") != FORMAT:
+        found = packet.get("format") if isinstance(packet, dict) else type(packet).__name__
+        raise RecordError(f"not an editorial packet (format {found!r})")
     esc = html.escape
     orig_marks, ed_marks = _marks(packet)
     loose = sum(1 for m in orig_marks + ed_marks if m[2] == "loose")
@@ -231,6 +259,7 @@ h1 {{ font-size:1.5rem; margin:0 0 4px; }} h2 {{ font-size:1.05rem; margin:28px 
 .add {{ background:var(--add); }} .xf {{ background:var(--xf); }} .interp {{ background:var(--interp); }}
 .unknown {{ outline:1px dashed var(--fail); }}
 .quote {{ text-decoration:underline dotted; text-underline-offset:3px; }}
+.badquote {{ text-decoration:underline wavy var(--fail); }}
 .loose {{ background:repeating-linear-gradient(45deg, var(--loose), var(--loose) 4px, transparent 4px, transparent 7px);
   outline:1px solid var(--loose-b); border-radius:2px; }}
 .chg:target {{ outline:3px solid var(--fg); }}
@@ -289,6 +318,17 @@ def write_review(packet_text: str, packet_name: str, out_dir: str | Path, source
     path = folder / f"{stem}.review.html"
     if path.is_symlink():
         raise RecordError(f"{path.name} is a symlink; refusing to write through it")
+    # Never replace one of the packet's own inputs, even an earlier sheet used
+    # as an original or edition, or an input that is a link to this name
+    # (Copilot on #10). samefile follows links on the input side.
+    if source is not None and os.path.lexists(path) and hasattr(source, "path_of"):
+        for role in ("original", "edition"):
+            try:
+                input_path = source.path_of(packet[role]["name"])
+            except (SourceError, KeyError, TypeError):
+                continue
+            if os.path.samefile(input_path, path):
+                raise RecordError(f"{path.name} is this packet's {role}; refusing to replace it")
     # Replace only an earlier sheet. Anything else under this name (an input
     # text, a note) is refused, checked by content so no alias can slip by.
     if os.path.lexists(path):

@@ -11,7 +11,7 @@ import re
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
-from prospero.packet import RecordError, render_review, write_packet, write_review
+from prospero.packet import RecordError, build_packet, render_review, write_packet, write_review
 from prospero.packet.__main__ import main
 from prospero.packet.record import REPO_ROOT
 
@@ -150,6 +150,56 @@ class ReviewTest(PacketTestCase):
         packet = self.packet_dict({"changes": [], "quotations": []}, 'cat "dog"\n')
         self.assertFalse(packet["ok"])
         self.assertRegex(render_review(packet, source=self.source), LOOSE_MARK)
+
+    def test_a_declared_but_unresolved_quotation_is_not_unlabelled(self):
+        # changes-labelled passes; only quotations-resolve fails (Copilot on #10).
+        self.write("original.txt", "cat\n")
+        spec = {"changes": [], "quotations": [{"text": "dog", "source": "original"}]}
+        packet = self.packet_dict(spec, 'cat "dog"\n')
+        checks = {c["name"]: c["ok"] for c in packet["checks"]}
+        self.assertTrue(checks["changes-labelled"])
+        self.assertFalse(checks["quotations-resolve"])
+        page = render_review(packet, source=self.source)
+        self.assertNotRegex(page, LOOSE_MARK)
+        self.assertIn('<span class="badquote quote">dog</span>', page)
+
+    def test_an_unreadable_original_shows_as_a_failed_status(self):
+        packet = self.packet_dict()
+        (self.home / "original.txt").write_bytes(b"\xff\xfe not utf-8")
+        page = render_review(packet, source=self.source)
+        self.assertIn("original could not be read", page)
+
+    def test_a_large_unlabelled_addition_renders_quickly(self):
+        # Rendering used to rescan every mark per piece: quadratic (Copilot on #10).
+        import time
+        edition = EDITION + " ".join(f"w{i}" for i in range(20000)) + "\n"
+        packet = self.packet_dict(edition=edition)
+        began = time.monotonic()
+        page = render_review(packet, source=self.source)
+        self.assertLess(time.monotonic() - began, 5)
+        self.assertIn("20000 unlabelled word(s)", page)
+
+    def test_an_earlier_sheet_used_as_this_packets_original_is_not_replaced(self):
+        # A marked sheet that is also an input must still be refused (Copilot on #10).
+        folder = self.home / "packets"
+        folder.mkdir()
+        sheet = folder / "first.review.html"
+        sheet.write_text(render_review(self.packet_dict(), source=self.source), encoding="utf-8")
+        before = sheet.read_text(encoding="utf-8")
+        packet = build_packet(self.source, "packets/first.review.html", "edition.txt", SPEC).to_dict()
+        with self.assertRaises(RecordError):
+            write_review(json.dumps(packet), "first.packet.json", folder, self.source)
+        self.assertEqual(sheet.read_text(encoding="utf-8"), before)
+
+    def test_json_that_is_not_an_object_is_refused_cleanly(self):
+        for value in ([], None, "x", 3):
+            with self.subTest(value=value), self.assertRaises(RecordError):
+                render_review(value)
+        (self.home / "packets").mkdir()
+        (self.home / "packets" / "odd.packet.json").write_text("[]", encoding="utf-8")
+        code, _, err = self.run_cli("review", "packets/odd.packet.json")
+        self.assertEqual(code, 1)
+        self.assertIn("not an editorial packet", err)
 
     def test_not_a_packet_is_refused(self):
         with self.assertRaises(RecordError):
