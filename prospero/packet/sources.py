@@ -22,6 +22,16 @@ class SourceError(Exception):
     """A text could not be read from a source (missing, or outside the source)."""
 
 
+def _resolve(path: Path, name: str) -> Path:
+    """``path.resolve()``, with a symlink loop or an OS error reported as a
+    ``SourceError`` (Codex review on #9: on Python 3.10-3.12 a loop raises
+    ``RuntimeError``, which would escape every caller)."""
+    try:
+        return path.resolve()
+    except (RuntimeError, OSError) as error:
+        raise SourceError(f"{name!r} can't be resolved (a symlink loop?): {error}") from error
+
+
 class Source:
     """The interface every source implements.
 
@@ -54,7 +64,7 @@ class FolderSource(Source):
 
     def path_of(self, name: str) -> Path:
         """Return the real path for ``name``, or raise if it leaves the folder."""
-        candidate = (self.root / name).resolve()
+        candidate = _resolve(self.root / name, name)
         if candidate != self.root and self.root not in candidate.parents:
             raise SourceError(f"{name!r} is outside the source folder")
         if not candidate.is_file():
@@ -80,7 +90,7 @@ class FolderSource(Source):
             return []
         # Containment first, so a packets/ symlinked out of the source is
         # refused before anything there is listed (Copilot review on #9).
-        real = base.resolve()
+        real = _resolve(base, folder)
         if real != self.root and self.root not in real.parents:
             raise SourceError(f"{folder!r} points outside the source folder")
         if not real.is_dir():

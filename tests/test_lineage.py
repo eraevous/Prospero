@@ -554,3 +554,26 @@ class CopilotReviewOn9Test(LineageTestCase):
         self.assertFalse(h.ok)
         self.assertTrue(any("outside the source folder" in p for p in h.problems), h.problems)
         self.assertFalse(any("secret-name" in p for p in h.problems), h.problems)
+
+
+class CodexReviewOn479Test(LineageTestCase):
+    """Codex's finding on #9 at 47963a4: symlink loops are reported, not raised."""
+
+    def loop(self, link):
+        try:
+            os.symlink(link, link)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+
+    def test_looping_packets_folder_is_a_problem(self):
+        self.loop(self.home / "packets")
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any(p.startswith("packets/") for p in h.problems), h.problems)
+
+    def test_looping_packet_file_is_a_problem(self):
+        self.make("first", EDITION, SPEC)
+        self.loop(self.home / "packets" / "loop.packet.json")
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("loop.packet.json" in p for p in h.problems), h.problems)
