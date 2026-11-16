@@ -32,6 +32,7 @@ import html
 import json
 import os
 import shlex
+import tempfile
 from pathlib import Path
 
 # _covered is the builder's own coverage test (the union of labelled spans),
@@ -56,8 +57,11 @@ def _segments(text: str, marks: list[tuple[int, int, str, str | None]]) -> str:
 
     ``marks`` holds (start, end, css_class, anchor_id). Marks may overlap: the
     text is cut at every mark boundary and each piece carries the classes of
-    every mark covering it, so nothing has to nest. The anchor id goes on the
-    first piece of its mark only (ids must be unique in a page).
+    every mark covering it, so nothing has to nest. Each anchor id appears
+    once (ids must be unique in a page): on the first piece of its mark, or,
+    when another mark's id already sits there (two changes with the same
+    span), on an empty marker just before it, so every change's link has a
+    target (Codex on #10).
     """
     cuts = sorted({0, len(text)} | {p for s, e, _, _ in marks for p in (s, e)})
     placed: set[str] = set()
@@ -69,11 +73,13 @@ def _segments(text: str, marks: list[tuple[int, int, str, str | None]]) -> str:
             out.append(piece)
             continue
         classes = " ".join(sorted({token for m in covering for token in m[2].split()}))
-        anchor = next((m[3] for m in covering if m[3] and m[3] not in placed), None)
+        pending = list(dict.fromkeys(m[3] for m in covering if m[3] and m[3] not in placed))
+        placed.update(pending)
+        # The first pending id goes on the piece, any others on empty markers.
+        out.extend(f'<span id="{html.escape(a, quote=True)}"></span>' for a in pending[1:])
         attrs = f' class="{classes}"'
-        if anchor:
-            placed.add(anchor)
-            attrs += f' id="{html.escape(anchor, quote=True)}"'
+        if pending:
+            attrs += f' id="{html.escape(pending[0], quote=True)}"'
         titles = [m[3] for m in covering if m[3]]
         if titles:
             attrs += f' title="{html.escape(", ".join(t.split(":", 1)[-1] for t in titles), quote=True)}"'
@@ -100,16 +106,22 @@ def _marks(packet: dict) -> tuple[list, list]:
             span = _find_span(target, text_value or "")
             if span:
                 marks.append((span[0], span[1], css, f"{side}:{cid}"))
-    # Quotations: underline each quoted passage in the edition, and the place
-    # it comes from when its source is the original.
+    # Quotations: underline every declared passage where it actually sits
+    # between quotation marks in the edition (found the way the builder finds
+    # them, with QUOTE_RE, not by searching for the words, which could hit an
+    # unquoted earlier copy; Codex on #10), and the place in the original its
+    # locator names.
+    declared = {quote["text"] for quote in packet.get("quotations", [])}
+    for match in QUOTE_RE.finditer(edition):
+        group = 1 if match.group(1) is not None else 2
+        if match.group(group) in declared:
+            ed_marks.append((match.start(group), match.end(group), "quote", None))
     for quote in packet.get("quotations", []):
-        span = _find_span(edition, quote["text"])
-        if span:
-            ed_marks.append((span[0], span[1], "quote", None))
-        if quote.get("locator", {}).get("name") == packet["original"]["name"]:
-            span = _find_span(original, quote["text"])
-            if span:
-                orig_marks.append((span[0], span[1], "quote", None))
+        locator = quote.get("locator", {})
+        if locator.get("name") == packet["original"]["name"]:
+            start = locator.get("offset")
+            if isinstance(start, int) and original[start:start + len(quote["text"])] == quote["text"]:
+                orig_marks.append((start, start + len(quote["text"]), "quote", None))
     # Unlabelled differences, word by word, on both sides.
     ed_known = [(s, e) for s, e, *_ in ed_marks] + [(m.start(), m.end()) for m in QUOTE_RE.finditer(edition)]
     orig_known = [(s, e) for s, e, *_ in orig_marks]
@@ -286,10 +298,16 @@ def write_review(packet_text: str, packet_name: str, out_dir: str | Path, source
     folder.mkdir(parents=True, exist_ok=True)
     # Write a temporary file and rename it over the old sheet: the rename
     # replaces a name, so a link planted at the target is not followed.
-    tmp = folder / f".{path.name}.tmp"
-    if os.path.lexists(tmp):
-        os.unlink(tmp)
-    with open(tmp, "x", encoding="utf-8") as handle:
-        handle.write(page)
-    os.replace(tmp, path)
+    # mkstemp creates a new, uniquely named file exclusively, so no existing
+    # file (an input text with a ".tmp" name, say) is ever deleted or reused
+    # (Codex on #10). Only the file made here is removed on failure.
+    fd, tmp_name = tempfile.mkstemp(dir=folder, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(page)
+        os.replace(tmp_name, path)
+    except BaseException:
+        if os.path.lexists(tmp_name):
+            os.unlink(tmp_name)
+        raise
     return path

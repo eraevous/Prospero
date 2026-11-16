@@ -113,6 +113,37 @@ class ReviewTest(PacketTestCase):
             write_review(json.dumps(self.packet_dict()), "first.packet.json", folder)
         self.assertEqual((folder / "first.review.html").read_text(encoding="utf-8"), EDITION)
 
+    def test_the_quotation_mark_sits_on_the_quoted_occurrence(self):
+        # The quoted words also appear earlier, unquoted (Codex on #10).
+        self.write("original.txt", "cat\n")
+        edition = 'cat "cat"\n'
+        spec = {"changes": [{"id": "c1", "kind": "agent addition", "rationale": "echo", "edition_text": "cat "}],
+                "quotations": [{"text": "cat", "source": "original"}]}
+        packet = self.packet_dict(spec, edition)
+        self.assertTrue(packet["ok"], packet["checks"])
+        page = render_review(packet, source=self.source)
+        self.assertIn('&quot;<span class="quote">cat</span>&quot;', page)
+
+    def test_every_change_link_has_a_target_when_spans_coincide(self):
+        # Two changes on the same words (Codex on #10).
+        spec = json.loads(json.dumps(SPEC))
+        spec["changes"].append(dict(spec["changes"][0], id="c9"))
+        packet = self.packet_dict(spec)
+        self.assertTrue(packet["ok"], packet["checks"])
+        page = render_review(packet, source=self.source)
+        for anchor in ("o:c1", "e:c1", "o:c9", "e:c9"):
+            self.assertEqual(page.count(f'id="{anchor}"'), 1, anchor)
+
+    def test_a_file_with_the_old_temporary_name_is_left_alone(self):
+        # The earlier fixed ".<sheet>.tmp" name could delete an input (Codex on #10).
+        folder = self.home / "packets"
+        folder.mkdir()
+        keep = folder / ".first.review.html.tmp"
+        keep.write_text("keep me\n", encoding="utf-8")
+        write_review(json.dumps(self.packet_dict()), "first.packet.json", folder)
+        self.assertEqual(keep.read_text(encoding="utf-8"), "keep me\n")
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), [".first.review.html.tmp", "first.review.html"])
+
     def test_not_a_packet_is_refused(self):
         with self.assertRaises(RecordError):
             render_review({"format": "something else"})
