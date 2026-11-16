@@ -22,9 +22,10 @@ difference, with the texts filled in and the judgement left blank:
   otherwise the source is left blank, so ``build`` flags it until someone
   names where the words come from.
 
-Each change's texts are widened, a word at a time, until they occur first
+Each change's texts are widened, a character at a time, until they occur first
 exactly where the difference is. The builder finds a declared text by its
 first occurrence, so a bare ``the`` would otherwise point at the wrong place.
+The widening steers clear of quotations where it can.
 """
 
 from __future__ import annotations
@@ -37,18 +38,51 @@ from .build import QUOTE_RE, _covered, _differences, _find_span, _word_spans
 from .record import RecordError, _outside_repo
 
 
-def _unique_snippet(text: str, span: tuple[int, int]) -> tuple[int, int]:
-    """Widen ``span`` by whole words until its text first occurs at ``span``.
+# How far (in characters) the fine-grained search below may widen a snippet
+# before falling back to whole words; keeps the search cheap on long texts.
+_MAX_EXTRA = 120
 
-    Words are added after, then before, in turn. In the worst case the span
-    grows to the whole text, whose first occurrence is always itself.
+
+def _first_at(text: str, start: int, end: int) -> bool:
+    return text.find(text[start:end]) == start
+
+
+def _overlaps_any(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
+    return any(start < e and s < end for s, e in spans)
+
+
+def _unique_snippet(text: str, span: tuple[int, int],
+                    avoid: list[tuple[int, int]] = ()) -> tuple[int, int]:
+    """The smallest widening of ``span`` whose text first occurs at ``span``.
+
+    Widening goes a character at a time, so adjacent whitespace can do the
+    job (`` calm`` rather than ``"calm" calm``). Snippets that would reach
+    into an ``avoid`` span (a quotation) are passed over while a clean one
+    exists: a change text that swallows an unchanged quotation would make an
+    ``interpretation`` label fail ``no-interpretation-as-quotation`` although
+    only words outside the quotation changed (Copilot on #11).
     """
-    words = _word_spans(text)
     start, end = span
+    if _first_at(text, start, end):
+        return start, end
+    fallback = None
+    for extra in range(1, _MAX_EXTRA + 1):
+        for left in range(extra + 1):
+            s, e = start - left, end + (extra - left)
+            if s < 0 or e > len(text) or not _first_at(text, s, e):
+                continue
+            if not _overlaps_any(s, e, avoid):
+                return s, e
+            fallback = fallback or (s, e)
+    if fallback:
+        return fallback
+    # Long repeated text: widen by whole words, which always ends at a unique
+    # snippet (at worst the whole text).
+    words = _word_spans(text)
     after = [w for w in words if w[1] >= end]
     before = [w for w in reversed(words) if w[2] <= start]
     take_after = True
-    while _find_span(text, text[start:end])[0] != start:
+    while not _first_at(text, start, end):
         if (take_after and after) or not before:
             end = after.pop(0)[2]
         else:
@@ -87,7 +121,8 @@ def draft_spec(original: str, edition: str) -> dict:
             s, e = _unique_snippet(original, (loose_orig[0][0], loose_orig[-1][1]))
             entry["original_text"] = original[s:e]
         if loose_ed:
-            s, e = _unique_snippet(edition, (loose_ed[0][0], loose_ed[-1][1]))
+            s, e = _unique_snippet(edition, (loose_ed[0][0], loose_ed[-1][1]),
+                                   [(m.start(), m.end()) for m in QUOTE_RE.finditer(edition)])
             entry["edition_text"] = edition[s:e]
         else:
             entry["edition_text"] = ""  # a pure deletion

@@ -56,7 +56,7 @@ python3 -m prospero.packet --home ~/prospero-content draft-spec original.md edit
 python3 -m prospero.packet --home ~/prospero-content build original.md edition.md spec.json --stem first
 ```
 
-Each change's text is widened a word at a time until its first occurrence is the changed place, since `build` finds
+Each change's text is widened a character at a time (steering clear of quotations where it can) until its first occurrence is the changed place, since `build` finds
 declared text by first occurrence. Once every change is labelled, the draft passes `changes-labelled` by construction;
 [tests/test_draft.py](tests/test_draft.py) checks this for repeated words, deletions, reordering, punctuation-only
 edits and quotation marks.

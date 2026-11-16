@@ -75,6 +75,18 @@ class DraftTest(PacketTestCase):
         changed_word = original.find("the bird")
         self.assertTrue(start <= changed_word < start + len(change["original_text"]), change)
 
+    def test_widening_does_not_swallow_an_unchanged_quotation(self):
+        # Only the unquoted word changed, so an interpretation label must pass
+        # (Copilot on #11): the snippet is " calm", not '"calm" calm'.
+        original, edition = '"calm" sad\n', '"calm" calm\n'
+        (change,) = draft_spec(original, edition)["changes"]
+        self.assertNotIn('"', change["edition_text"])
+        self.write("original.txt", original)
+        self.write("edition.txt", edition)
+        spec = labelled(draft_spec(original, edition), kind="interpretation")
+        packet = build_packet(self.source, "original.txt", "edition.txt", spec)
+        self.assertTrue(packet.ok, [c for c in packet.checks if not c.ok])
+
     def test_quotations_are_declared_with_their_source(self):
         spec = draft_spec(ORIGINAL, EDITION)
         self.assertEqual(spec["quotations"], [{"text": "the oil was thin this winter.",
