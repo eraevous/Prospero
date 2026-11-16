@@ -2,8 +2,8 @@
   "manifest": "kairos.tool-manifest.provisional",
   "note": "DEC-177 requires every new tool to declare its sockets; the manifest schema itself is still with R&D, so this file is provisional and will be migrated when a schema is adopted.",
   "tool": "prospero.packet",
-  "version": "0.2.0",
-  "purpose": "Build an editorial packet (original + proposed edition + labelled changes + resolved quotations) record accept/reject/revise decisions, link revisions to their parent packet and report the history of one original.",
+  "version": "0.3.0",
+  "purpose": "Build an editorial packet (original + proposed edition + labelled changes + resolved quotations) record accept/reject/revise decisions, link revisions to their parent packet, report the history of one original, and render a side-by-side HTML review sheet for a packet.",
   "sockets": {
     "information_in": [
       {
@@ -34,6 +34,15 @@
         "implementation": "prospero/packet/lineage.py:history",
         "reads": ["<content folder>/packets/*.packet.json", "<content folder>/decisions.jsonl"],
         "writes": []
+      },
+      {
+        "id": "review-sheet",
+        "kind": "file (self-contained HTML: no scripts, no network)",
+        "implementation": "prospero/packet/review.py:write_review",
+        "location": "beside the packet: <content folder>/packets/<stem>.review.html",
+        "reads": ["<stem>.packet.json", "the original (its hash is re-checked)"],
+        "writes": ["<stem>.review.html (a view: replaced each time it is generated)"],
+        "refuses": "any folder inside this repository; a symlink at the sheet's name"
       }
     ],
     "services": [],
