@@ -42,6 +42,17 @@ def _canonical(source: Source, name: str) -> str:
     return source.canonical(name) if hasattr(source, "canonical") else name
 
 
+def _same_original(source: Source, stored: str, original: str) -> bool:
+    """Whether a name stored in a record means ``original`` (already canonical).
+    Codex review on #9: ``./original.txt`` and ``original.txt`` are one original,
+    including in records written before names were canonicalised. A stored
+    name that no longer resolves is compared as written."""
+    try:
+        return _canonical(source, stored) == original
+    except SourceError:
+        return stored == original
+
+
 def _packet_fields(data) -> tuple[dict, dict, dict | None]:
     """The original, edition and parent of a parsed packet, or ValueError if any
     has the wrong shape (Codex review on #9: valid JSON with ``"edition": null``
@@ -75,12 +86,13 @@ def parent_ref(source: Source, parent_name: str, original_name: str) -> dict:
     the parent breaks the link visibly instead of silently.
     """
     parent_name = _canonical(source, parent_name)
+    original_name = _canonical(source, original_name)
     text = source.read(parent_name)
     try:
         parent_original, _, _ = _packet_fields(json.loads(text))
     except (json.JSONDecodeError, ValueError) as error:
         raise LineageError(f"{parent_name} is not a packet: {error}") from error
-    if parent_original.get("name") != original_name:
+    if not _same_original(source, parent_original["name"], original_name):
         raise LineageError(f"{parent_name} is a packet for {parent_original.get('name')!r}, not {original_name!r}")
     if parent_original.get("sha256") != sha256(source.read(original_name)):
         raise LineageError(f"the original has changed since {parent_name} was built; rebuild from the original")
@@ -151,12 +163,14 @@ def _read_packets(source: Source, original: str, problems: list[str]) -> dict[st
             text = source.read(name)
             data = json.loads(text)
             data_original, edition, parent = _packet_fields(data)
-        except (SourceError, json.JSONDecodeError, ValueError) as error:
+        except (SourceError, OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+            # OSError: a listed packet that can't be opened (Codex review on #9)
+            # is reported like any other unreadable packet.
             # Report it: a corrupt packet might belong to this original, and
             # dropping it would make the history look complete when it isn't.
             problems.append(f"{name}: unreadable packet ({error})")
             continue
-        if data_original["name"] != original:
+        if not _same_original(source, data_original["name"], original):
             continue
         nodes[name] = Node(name=name, sha256=sha256(text), original_sha256=data_original["sha256"],
                            edition=edition["name"], edition_sha256=edition["sha256"],
@@ -238,7 +252,7 @@ def _read_decisions(source: Source, original: str, nodes: dict[str, Node], probl
         if not isinstance(entry, dict) or not isinstance(entry.get("original"), str):
             problems.append(f"{where}: unreadable (not a decision record)")
             continue
-        if entry["original"] != original:
+        if not _same_original(source, entry["original"], original):
             continue
         missing = [k for k in REQUIRED if not isinstance(entry.get(k), str) or not entry[k]]
         if entry.get("decision") not in DECISIONS:
@@ -297,6 +311,7 @@ def history(source: Source, original: str) -> History:
     Raises ``SourceError`` if the original itself can't be read.
     """
     problems: list[str] = []
+    original = _canonical(source, original)
     current = sha256(source.read(original))
     nodes = _read_packets(source, original, problems)
     _check_links(source, nodes, current, problems)

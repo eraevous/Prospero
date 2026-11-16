@@ -50,8 +50,10 @@ def main(argv: list[str] | None = None) -> int:
         source = FolderSource(home)
         if args.command == "build":
             spec = json.loads(source.read(args.spec))
-            parent = parent_ref(source, args.parent, args.original) if args.parent else None
-            packet = build_packet(source, args.original, args.edition, spec, parent=parent)
+            # One spelling per original, so history finds every packet for it.
+            original = source.canonical(args.original)
+            parent = parent_ref(source, args.parent, original) if args.parent else None
+            packet = build_packet(source, original, args.edition, spec, parent=parent)
             json_path, md_path = write_packet(packet, home / "packets", args.stem)
             print(f"wrote {json_path.name} and {md_path.name}; checks {'passed' if packet.ok else 'FAILED'}")
             for check in packet.checks:

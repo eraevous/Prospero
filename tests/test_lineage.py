@@ -400,3 +400,47 @@ class KateReviewOn9Test(LineageTestCase):
         self.assertIn("broken lineage", text)
         self.assertIn(a, text)
         self.assertIn(b, text)
+
+
+class CodexReviewOn831Test(LineageTestCase):
+    """Codex's two P2 findings on #9 at 831e2ba."""
+
+    def test_history_of_another_spelling_of_the_original_finds_its_packets(self):
+        first = self.make("first", EDITION, SPEC)
+        self.decide(first, "accept")
+        h = history(self.source, "./original.txt")
+        self.assertEqual(list(h.packets), [first])
+        self.assertEqual(len(h.events), 1)
+        self.write("original.txt", ORIGINAL + "A late entry.\n")
+        self.assertFalse(history(self.source, "./original.txt").ok)
+
+    def test_records_written_with_another_spelling_still_count(self):
+        self.write("edition.txt", EDITION)
+        packet = build_packet(self.source, "./original.txt", "edition.txt", SPEC)
+        write_packet(packet, self.home / "packets", "dotted")
+        self.assertEqual(list(history(self.source, "original.txt").packets), ["packets/dotted.packet.json"])
+        ref = parent_ref(self.source, "packets/dotted.packet.json", "original.txt")
+        self.assertEqual(ref["name"], "packets/dotted.packet.json")
+
+    def test_cli_build_stores_the_canonical_original(self):
+        self.write("spec.json", json.dumps(SPEC))
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            main(["--home", str(self.home), "build", "./original.txt", "edition.txt", "spec.json", "--stem", "c"])
+        self.assertEqual(json.loads(self.source.read("packets/c.packet.json"))["original"]["name"], "original.txt")
+
+    def test_packet_that_cannot_be_opened_is_reported(self):
+        first = self.make("first", EDITION, SPEC)
+        self.make("second", EDITION_2, SPEC_2, parent=first)
+        real_read = self.source.read
+
+        def read(name):
+            if name.endswith("second.packet.json"):
+                raise PermissionError(13, "Permission denied", name)
+            return real_read(name)
+
+        self.source.read = read
+        h = history(self.source, "original.txt")
+        self.assertFalse(h.ok)
+        self.assertTrue(any("second.packet.json" in p and "unreadable" in p for p in h.problems), h.problems)
+        self.assertIn(first, h.packets)
