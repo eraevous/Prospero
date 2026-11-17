@@ -1,7 +1,8 @@
 # Prospero
 
 **Status:** activated 2026-11-09. Editorial-packet mechanics (`prospero/packet/`): packets and decisions (first
-increment), revisions and history (second), a side-by-side review sheet (third, proposed), tested on invented text only. Running it on Zach's own writing (the pilot) is his call and happens outside this repository.
+increment), revisions and history (second), a side-by-side review sheet and spec drafting (third), and a JSON history
+view, all merged by 2026-11-17 and tested on invented text only. Running it on Zach's own writing (the pilot) is his call and happens outside this repository.
 
 ## What it is for
 
@@ -43,7 +44,7 @@ python3 -m prospero.packet --home ~/prospero-content build original.md edition.m
 python3 -m prospero.packet --home ~/prospero-content decide packets/first.packet.json reject --by zach --note "keep the original"
 ```
 
-### Drafting a spec (proposed)
+### Drafting a spec
 
 Writing `spec.json` by hand means finding every difference by eye. `draft-spec` finds them: it lists every difference
 between the original and the edition as a change, and every quotation in the edition, with the texts filled in and
@@ -85,7 +86,7 @@ superseded, what conflicting decisions mean and whether branching is allowed are
 fails closed: a missing or edited parent, a parent for another original, a loop, a corrupt packet or log line, or an
 original whose bytes have changed is reported as a problem (exit 1), never skipped.
 
-### Review sheet (third increment, proposed)
+### Review sheet (third increment)
 
 `review` turns a packet into one HTML page for deciding on it: the original and the edition side by side, every
 declared change highlighted in both and coloured by its label, quotations underlined with their locators, and every
@@ -115,8 +116,8 @@ examples. The tool's sockets (DEC-177) are declared in [prospero/packet/manifest
 
 ## Name
 
-PlayWrite → Prospero (DEC-128). Zach authorized renaming the repository to Prospero (DEC-183); until that is
-done the repository is still called `PlayWrite`.
+PlayWrite → Prospero (DEC-128). The repository was renamed from `PlayWrite` to `Prospero` on 2026-11-09, as Zach
+authorized (DEC-183); links to the old name redirect.
 
 ## Working here
 
