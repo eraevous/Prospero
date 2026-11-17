@@ -8,7 +8,8 @@ the tool reads and writes nothing else.
   build   ORIGINAL EDITION SPEC.json --stem NAME [--parent PACKET.json]
           write NAME.packet.json/.md under packets/; --parent makes it a revision
   decide  PACKET.json accept|reject|revise --by WHO [--note TEXT]   append to decisions.jsonl
-  history ORIGINAL   show every packet for ORIGINAL, which revises which, and the decisions
+  history ORIGINAL [--json]   show every packet for ORIGINAL, which revises which, and the
+          decisions; --json prints the same facts as one JSON object
   review  PACKET.json   write NAME.review.html beside it: both texts side by side, every
           change highlighted by label, unlabelled differences marked (decides nothing)
 
@@ -56,6 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--note", default="")
     h = sub.add_parser("history", help="packets, revisions and decisions for one original")
     h.add_argument("original")
+    h.add_argument("--json", action="store_true", help="print the history as JSON (same facts, same exit code)")
     r = sub.add_parser("review", help="write a side-by-side HTML review sheet for a packet")
     r.add_argument("packet")
     args = parser.parse_args(argv)
@@ -99,7 +101,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if packet.ok else 1
         if args.command == "history":
             result = history(source, args.original)
-            print(render_history(result), end="")
+            if args.json:
+                print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+            else:
+                print(render_history(result), end="")
             return 0 if result.ok else 1
         if args.command == "review":
             # The sheet lands beside the packet; path_of keeps it in the content folder.
