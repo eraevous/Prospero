@@ -72,8 +72,15 @@ python3 -m prospero.packet --home ~/prospero-content build original.md edition2.
 python3 -m prospero.packet --home ~/prospero-content history original.md
 ```
 
+`history ORIGINAL --json` prints the same facts as one JSON object (`"format": "prospero.history/1"`), for a script
+or another tool to read: each packet with its parent as written (`parent`) and as actually linked (`linked_parent`,
+null when that link is broken), its children and decisions; the first packets (`roots`); packets no first packet
+leads to (`unreachable`, a loop); every decision line in order; and the problems. It exits 1 on a problem exactly as
+the text view does.
+
 History reports what was recorded and stops there. It does not decide which edition is "current": two revisions of
-one packet are shown side by side, and two acceptances are both listed. Whether an accepted edition can be
+one packet are shown side by side, and two acceptances are both listed. The JSON has no "state" or "current" field
+for the same reason. Whether an accepted edition can be
 superseded, what conflicting decisions mean and whether branching is allowed are open questions for Zach. History
 fails closed: a missing or edited parent, a parent for another original, a loop, a corrupt packet or log line, or an
 original whose bytes have changed is reported as a problem (exit 1), never skipped.

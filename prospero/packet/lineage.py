@@ -82,6 +82,8 @@ def _packet_fields(data) -> tuple[dict, dict, dict | None]:
 
 PACKETS = "packets"
 DECISION_LOG = "decisions.jsonl"
+# Names the shape of ``History.to_dict`` so a reader can tell if it changes.
+HISTORY_FORMAT = "prospero.history/1"
 
 
 class LineageError(Exception):
@@ -144,13 +146,38 @@ class History:
         """Packets with no parent (or a parent that couldn't be linked), by name."""
         return sorted(n for n, node in self.packets.items() if node.linked_parent is None)
 
+    def unreachable(self) -> list[str]:
+        """Packets no first packet leads to (their ancestry loops), by name.
+
+        They are still part of the history: listing them keeps a broken tree
+        from looking complete (Kate's review on #9).
+        """
+        reached, stack = set(), list(self.roots())
+        while stack:
+            name = stack.pop()
+            if name not in reached:
+                reached.add(name)
+                stack.extend(self.packets[name].children)
+        return sorted(set(self.packets) - reached)
+
     def to_dict(self) -> dict:
+        """The same facts as ``render_history``, for programs (``history --json``).
+
+        Recorded facts only, like the text view: there is deliberately no
+        "state", "current" or "winner" field for the original (Kate's
+        acceptance check 4; supersession is Zach's open question). ``parent``
+        is what the packet file says; ``linked_parent`` is the packet it was
+        actually linked to, or null when that link is broken.
+        """
         return {
+            "format": HISTORY_FORMAT,
             "original": {"name": self.original, "sha256": self.original_sha256},
             "packets": {name: {"sha256": n.sha256, "edition": n.edition, "edition_sha256": n.edition_sha256,
-                               "checks_ok": n.checks_ok, "parent": n.parent, "children": n.children,
-                               "decisions": n.decisions}
+                               "checks_ok": n.checks_ok, "parent": n.parent, "linked_parent": n.linked_parent,
+                               "children": n.children, "decisions": n.decisions}
                         for name, n in sorted(self.packets.items())},
+            "roots": self.roots(),
+            "unreachable": self.unreachable(),
             "events": self.events,
             "problems": self.problems,
             "ok": self.ok,
@@ -360,10 +387,7 @@ def render_history(h: History) -> str:
     if not h.packets:
         lines.append("No packets for this original.")
 
-    visited: set = set()
-
     def walk(name: str, depth: int, seen: set) -> None:
-        visited.add(name)
         node = h.packets[name]
         calls = ", ".join(f"{d['decision']} by {d['by']}" + (" (inferred)" if d.get("link") == "inferred" else "")
                           for d in node.decisions) or "no decision recorded"
@@ -378,7 +402,7 @@ def render_history(h: History) -> str:
         walk(root, 0, set())
     # Packets no root reaches (a loop) are still listed, marked as broken, so
     # the tree never looks complete when it isn't (Kate's review on #9).
-    stray = sorted(set(h.packets) - visited)
+    stray = h.unreachable()
     if stray:
         lines.append("Not reachable from any first packet (broken lineage):")
         for name in stray:

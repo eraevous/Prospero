@@ -636,3 +636,110 @@ class CopilotReviewOnA8eTest(LineageTestCase):
             h = history(self.source, "original.txt")
         self.assertFalse(h.ok)
         self.assertTrue(any(p.startswith("packets/") and "can't be listed" in p for p in h.problems), h.problems)
+
+
+class HistoryJsonTest(LineageTestCase):
+    """``history --json``: the same recorded facts as the text view, for programs.
+
+    HO-PRO-20261116-MTN5 (tooling around lineage that waits on none of Zach's
+    open questions). The JSON must not add what the text view leaves out: no
+    state, current edition or winner for the original.
+    """
+
+    run_cli = HistoryCommandLineTest.run_cli
+
+    def history_json(self, original="original.txt"):
+        code, out, err = self.run_cli("history", original, "--json")
+        self.assertEqual(err, "")
+        return code, json.loads(out)
+
+    def test_json_carries_the_tree_and_the_decisions_in_order(self):
+        first = self.make("first", EDITION, SPEC)
+        self.decide(first, "revise")
+        second = self.make("second", EDITION_2, SPEC_2, parent=first)
+        third = self.make("third", EDITION_3, SPEC_3, parent=first)
+        self.decide(third, "accept")
+        self.decide(second, "accept")
+        code, data = self.history_json()
+        self.assertEqual(code, 0)
+        self.assertEqual(data["format"], "prospero.history/1")
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["problems"], [])
+        self.assertEqual(data["original"]["sha256"], sha256(ORIGINAL))
+        self.assertEqual(data["roots"], [first])
+        self.assertEqual(data["unreachable"], [])
+        self.assertEqual(data["packets"][first]["children"], [second, third])
+        self.assertEqual(data["packets"][second]["linked_parent"], first)
+        self.assertEqual(data["packets"][second]["parent"]["sha256"], sha256(self.source.read(first)))
+        self.assertIsNone(data["packets"][first]["linked_parent"])
+        self.assertEqual([(e["line"], e["decision"], e["packets"]) for e in data["events"]],
+                         [(1, "revise", [first]), (2, "accept", [third]), (3, "accept", [second])])
+        self.assertEqual([d["decision"] for d in data["packets"][second]["decisions"]], ["accept"])
+
+    def test_json_names_no_state_or_winner_even_with_two_acceptances(self):
+        first = self.make("first", EDITION, SPEC)
+        second = self.make("second", EDITION_2, SPEC_2, parent=first)
+        third = self.make("third", EDITION_3, SPEC_3, parent=first)
+        self.decide(second, "accept")
+        self.decide(third, "accept")
+        _, data = self.history_json()
+        keys = set(data) | {k for p in data["packets"].values() for k in p}
+        for word in ("state", "status", "current", "winner", "latest", "accepted"):
+            self.assertFalse(any(word in k for k in keys), (word, keys))
+
+    def test_json_agrees_with_the_text_view(self):
+        first = self.make("first", EDITION, SPEC)
+        second = self.make("second", EDITION_2, SPEC_2, parent=first)
+        self.decide(second, "reject")
+        _, data = self.history_json()
+        code, text, _ = self.run_cli("history", "original.txt")
+        self.assertEqual(code, 0)
+        self.assertEqual(data, history(self.source, "original.txt").to_dict())
+        for name in data["packets"]:
+            self.assertIn(name, text)
+        self.assertIn("reject by zach on " + second, text)
+
+    def test_json_exits_1_on_a_problem_and_still_prints_it(self):
+        self.make("first", EDITION, SPEC)
+        self.write("original.txt", ORIGINAL + "A late entry.\n")
+        code, data = self.history_json()
+        self.assertEqual(code, 1)
+        self.assertFalse(data["ok"])
+        self.assertTrue(any("different bytes of the original" in p for p in data["problems"]), data["problems"])
+
+    def test_json_lists_packets_in_a_loop_as_unreachable(self):
+        a = self.make("a", EDITION, SPEC)
+        b = self.make("b", EDITION_2, SPEC_2, parent=a)
+        data = json.loads(self.source.read(a))
+        data["parent"] = {"name": b, "sha256": sha256(self.source.read(b))}
+        (self.home / a).write_text(json.dumps(data), encoding="utf-8")
+        code, out = self.history_json()
+        self.assertEqual(code, 1)
+        self.assertEqual(out["roots"], [])
+        self.assertEqual(out["unreachable"], [a, b])
+        self.assertTrue(any("loops back" in p for p in out["problems"]), out["problems"])
+
+    def test_json_keeps_non_ascii_notes_and_an_ambiguous_older_line(self):
+        first = self.make("first", EDITION, SPEC)
+        self.make("again", EDITION, SPEC, parent=first)
+        record_decision(self.home, json.loads(self.source.read(first)), self.source, "accept", "zach",
+                        note="gardé tel quel")
+        code, data = self.history_json()
+        self.assertEqual(code, 1)
+        event = data["events"][0]
+        self.assertTrue(event["ambiguous"])
+        self.assertEqual(event["link"], "inferred")
+        self.assertEqual(event["note"], "gardé tel quel")
+        _, out, _ = self.run_cli("history", "original.txt", "--json")
+        self.assertIn("gardé tel quel", out)
+
+    def test_json_for_an_original_with_no_packets(self):
+        code, data = self.history_json()
+        self.assertEqual(code, 0)
+        self.assertEqual((data["packets"], data["roots"], data["events"]), ({}, [], []))
+
+    def test_unreadable_original_is_an_error_not_json(self):
+        code, out, err = self.run_cli("history", "missing.txt", "--json")
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("error:", err)
