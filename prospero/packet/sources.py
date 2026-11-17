@@ -108,8 +108,19 @@ class FolderSource(Source):
     def read(self, name: str) -> str:
         # newline="" keeps the bytes as they are (no \r\n translation), so the
         # hash of what we read matches the hash of the file on disk.
-        with open(self.path_of(name), encoding="utf-8", newline="") as handle:
-            return handle.read()
+        #
+        # A file that isn't UTF-8, or can't be opened (permissions, a folder
+        # swapped in after path_of), is reported as a SourceError like every
+        # other unreadable name, so callers catch one exception and the CLI
+        # prints "error: ..." rather than a traceback.
+        path = self.path_of(name)
+        try:
+            with open(path, encoding="utf-8", newline="") as handle:
+                return handle.read()
+        except UnicodeDecodeError as error:
+            raise SourceError(f"{name!r} is not UTF-8 text: {error}") from error
+        except OSError as error:
+            raise SourceError(f"{name!r} can't be read: {error}") from error
 
 
 def content_home(explicit: str | os.PathLike | None = None) -> Path:
