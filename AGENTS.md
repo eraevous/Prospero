@@ -7,7 +7,8 @@
   write it up (pull request description, issue, or a proposed decision) and let Zach decide.
 - The purpose record `P0` in `.aec/records.jsonl` is a stub until Zach states the purpose in his own words.
   Do not fill it in for him.
-- Never merge, never force-push. Open draft pull requests.
+- Never merge, never force-push. A pull request stays a draft only while it is being worked on; mark it ready
+  for review once the work is done and CI is green (DEC-220).
 
 ## How code is written
 
