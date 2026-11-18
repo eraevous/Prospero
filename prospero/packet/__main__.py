@@ -35,6 +35,22 @@ from .record import DECISIONS, RecordError, record_decision, write_packet
 from .sources import FolderSource, SourceError, content_home
 
 
+def _folder_in_home(source: FolderSource, folder: Path, given: str) -> Path:
+    """Resolve ``folder`` and return it, or raise ``SourceError`` if it leads
+    out of the content folder (``..``, an absolute path, a symlink pointing
+    out). The folder need not exist yet; a missing tail resolves as written.
+    ``given`` is how the person spelled it, for the message."""
+    try:
+        real = folder.resolve()
+    except (RuntimeError, OSError, ValueError) as error:
+        # A symlink loop raises RuntimeError on Python 3.10-3.12
+        # (Copilot on #11); report it like any rejected path.
+        raise SourceError(f"{given!r} can't be resolved (a symlink loop?): {error}") from error
+    if real != source.root and source.root not in real.parents:
+        raise SourceError(f"{given!r} is outside the content folder")
+    return real
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python3 -m prospero.packet", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -73,14 +89,7 @@ def main(argv: list[str] | None = None) -> int:
             out = Path(args.out)
             if out.name in ("", ".", ".."):
                 raise SourceError(f"--out must name a file, not {args.out!r}")
-            try:
-                folder = (home / out).parent.resolve()
-            except (RuntimeError, OSError, ValueError) as error:
-                # A symlink loop raises RuntimeError on Python 3.10-3.12
-                # (Copilot on #11); report it like any rejected path.
-                raise SourceError(f"{args.out!r} can't be resolved (a symlink loop?): {error}") from error
-            if folder != source.root and source.root not in folder.parents:
-                raise SourceError(f"{args.out!r} is outside the content folder")
+            folder = _folder_in_home(source, (home / out).parent, args.out)
             path = write_spec(spec, folder / out.name)
             blank = sum(1 for q in spec["quotations"] if not q["source"])
             print(f"wrote {path.name}: {len(spec['changes'])} change(s) and {len(spec['quotations'])} "
@@ -93,7 +102,11 @@ def main(argv: list[str] | None = None) -> int:
             original = source.canonical(args.original)
             parent = parent_ref(source, args.parent, original) if args.parent else None
             packet = build_packet(source, original, args.edition, spec, parent=parent)
-            json_path, md_path = write_packet(packet, home / "packets", args.stem)
+            # packets/ may be a symlink, but only to a folder inside the content
+            # folder: a packet carries the whole original, so it must not land
+            # anywhere the person didn't choose for their writing.
+            packets = _folder_in_home(source, home / "packets", "packets")
+            json_path, md_path = write_packet(packet, packets, args.stem)
             print(f"wrote {json_path.name} and {md_path.name}; checks {'passed' if packet.ok else 'FAILED'}")
             for check in packet.checks:
                 for problem in check.problems:
