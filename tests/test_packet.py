@@ -295,6 +295,17 @@ class RecordTest(PacketTestCase):
             write_packet(self.build(), self.home / "packets", "lamp")
         self.assertFalse(target.exists())
 
+    def test_taken_markdown_name_leaves_no_lone_json(self):
+        # Both names are checked before either is written, so a refusal on
+        # the .md half never leaves a half-written packet behind.
+        (self.home / "packets").mkdir()
+        target = Path(self._tmp.name) / "leak.md"
+        self.symlink(self.home / "packets" / "lamp.packet.md", target)
+        with self.assertRaises(RecordError):
+            write_packet(self.build(), self.home / "packets", "lamp")
+        self.assertFalse(target.exists())
+        self.assertFalse((self.home / "packets" / "lamp.packet.json").exists())
+
     def test_refuses_to_write_inside_the_repository(self):
         with self.assertRaises(RecordError):
             write_packet(self.build(), REPO_ROOT / "packets", "lamp")
