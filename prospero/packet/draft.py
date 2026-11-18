@@ -31,11 +31,10 @@ The widening steers clear of quotations where it can.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 from .build import QUOTE_RE, _covered, _differences, _find_span, _word_spans
-from .record import RecordError, _outside_repo
+from .record import RecordError, _create_new, _outside_repo
 
 
 # How far (in characters) the fine-grained search below may widen a snippet
@@ -201,17 +200,8 @@ def write_spec(spec: dict, out_path: Path) -> Path:
     except OSError as error:
         # A symlink loop or a file where the folder should be: refuse cleanly.
         raise RecordError(f"can't create {folder}: {error}") from error
-    # lexists, not exists: a dangling symlink counts as taken. Mode "x" alone
-    # is not enough: on Windows it follows a dangling link and creates the
-    # target (CI on #11), so check the name itself first, as write_packet does.
-    if os.path.lexists(path):
-        raise RecordError(f"{path.name} already exists; choose another name")
     try:
-        # Mode "x": create or fail; never follows a planted symlink.
-        with open(path, "x", encoding="utf-8") as handle:
-            handle.write(json.dumps(spec, ensure_ascii=False, indent=2) + "\n")
-    except FileExistsError as error:
-        raise RecordError(f"{path.name} already exists; choose another name") from error
+        _create_new(path, json.dumps(spec, ensure_ascii=False, indent=2) + "\n", "choose another name")
     except OSError as error:
         raise RecordError(f"can't write {path.name}: {error}") from error
     return path

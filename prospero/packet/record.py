@@ -80,20 +80,32 @@ def write_packet(packet: Packet, out_dir: str | Path, stem: str) -> tuple[Path, 
         if path.resolve().parent != folder:
             raise RecordError(f"{path.name} would land outside {folder}")
     folder.mkdir(parents=True, exist_ok=True)
+    # Check both names before writing either, so a taken .md never leaves a
+    # lone .json behind.
     for path in (json_path, md_path):
-        # lexists, not exists: a dangling symlink would otherwise be followed.
         if os.path.lexists(path):
             raise RecordError(f"{path.name} already exists; use a new stem")
-    # Mode "x" creates the file or fails; it never follows a symlink planted
-    # between the check above and the write.
-    try:
-        with open(json_path, "x", encoding="utf-8") as handle:
-            handle.write(json.dumps(packet.to_dict(), ensure_ascii=False, indent=2) + "\n")
-        with open(md_path, "x", encoding="utf-8") as handle:
-            handle.write(render_markdown(packet))
-    except FileExistsError as error:
-        raise RecordError(f"{Path(error.filename).name} already exists; use a new stem") from error
+    _create_new(json_path, json.dumps(packet.to_dict(), ensure_ascii=False, indent=2) + "\n", "use a new stem")
+    _create_new(md_path, render_markdown(packet), "use a new stem")
     return json_path, md_path
+
+
+def _create_new(path: Path, text: str, hint: str) -> None:
+    """Create ``path`` holding ``text``, or refuse if the name is taken.
+
+    The one place a record file is created, so the symlink reasoning lives
+    once: ``lexists``, not ``exists``, so a dangling symlink counts as taken
+    (on Windows mode "x" alone follows one and creates its target; CI on #11);
+    then mode "x", which creates or fails and never follows a link planted
+    between the check and the write. ``hint`` ends the refusal message.
+    """
+    if os.path.lexists(path):
+        raise RecordError(f"{path.name} already exists; {hint}")
+    try:
+        with open(path, "x", encoding="utf-8") as handle:
+            handle.write(text)
+    except FileExistsError as error:
+        raise RecordError(f"{path.name} already exists; {hint}") from error
 
 
 def _open_log(folder: Path, original: Path | None):
