@@ -31,7 +31,7 @@ import os
 from dataclasses import dataclass, field
 
 from .build import sha256
-from .record import DECISIONS
+from .record import DECISION_LOG, DECISIONS, PACKET_SUFFIX
 from .sources import Source, SourceError
 
 
@@ -81,7 +81,6 @@ def _packet_fields(data) -> tuple[dict, dict, dict | None]:
     return original, edition, parent
 
 PACKETS = "packets"
-DECISION_LOG = "decisions.jsonl"
 # Names the shape of ``History.to_dict`` so a reader can tell if it changes.
 HISTORY_FORMAT = "prospero.history/1"
 
@@ -187,7 +186,7 @@ class History:
 def _read_packets(source: Source, original: str, problems: list[str]) -> dict[str, Node]:
     nodes = {}
     try:
-        listed_names = source.names(PACKETS, "*.packet.json")
+        listed_names = source.names(PACKETS, f"*{PACKET_SUFFIX}")
     except SourceError as error:
         # A packets/ that exists but isn't a usable folder inside the content
         # folder is a problem, not an empty history (Copilot review on #9).
@@ -283,6 +282,55 @@ def _read_log(source: Source, problems: list[str]) -> str:
 REQUIRED = ("at", "decision", "by", "original", "original_sha256", "edition", "edition_sha256")
 
 
+def _match_packets(source: Source, entry: dict, has_packet: bool, nodes: dict[str, Node],
+                   where: str, problems: list[str]) -> tuple[list[Node], str]:
+    """The packets one well-formed decision line decides, and how the link is known.
+
+    A line that names its packet links to exactly that packet ("recorded");
+    an older line is matched by its original and edition hashes ("inferred").
+    Any mismatch is added to ``problems``; the line still becomes an event.
+    """
+    if has_packet:
+        # Since increment 2 a line names its packet: the name and the hash
+        # must both match (Kate's review on #9).
+        try:
+            named = _canonical(source, entry["packet"])
+        except SourceError:
+            named = entry["packet"]
+        node = nodes.get(named)
+        matched = [node] if node is not None and node.sha256 == entry["packet_sha256"] else []
+        if not matched:
+            problems.append(f"{where}: decides {entry['packet']}, which isn't here with that hash "
+                            f"(missing, renamed or changed since)")
+        else:
+            # The line's own description of what was decided must agree
+            # with the packet it names (Kate's round-3 review on #9).
+            clash = [field for field, mine in (("original_sha256", node.original_sha256),
+                                               ("edition", node.edition),
+                                               ("edition_sha256", node.edition_sha256))
+                     if entry[field] != mine]
+            if clash:
+                problems.append(f"{where}: {', '.join(clash)} contradict{'s' if len(clash) == 1 else ''} "
+                                f"the packet it names ({named})")
+        link = "recorded"
+    else:
+        # Older lines name only the original and edition. Every packet with
+        # that pair is a candidate; the link is inferred, never confirmed.
+        matched = [n for n in nodes.values()
+                   if n.edition_sha256 == entry["edition_sha256"]
+                   and n.original_sha256 == entry["original_sha256"]]
+        link = "inferred"
+        if not matched:
+            # Codex review on #9: a missing packet is a problem for older
+            # lines too, or history looks complete when it isn't.
+            problems.append(f"{where}: decides edition {entry['edition']}, "
+                            f"but no packet here has that original and edition")
+        elif len(matched) > 1:
+            problems.append(f"{where}: older line names no packet and matches {len(matched)}; "
+                            f"which one was decided is unknown")
+    return matched, link
+
+
 def _read_decisions(source: Source, original: str, nodes: dict[str, Node], problems: list[str]) -> list[dict]:
     events = []
     # Split on LF only (Copilot review on #9): notes are written with
@@ -319,44 +367,7 @@ def _read_decisions(source: Source, original: str, nodes: dict[str, Node], probl
         if not _same_original(source, entry["original"], original):
             continue
 
-        if has_packet:
-            # Since increment 2 a line names its packet: the name and the hash
-            # must both match (Kate's review on #9).
-            try:
-                named = _canonical(source, entry["packet"])
-            except SourceError:
-                named = entry["packet"]
-            node = nodes.get(named)
-            matched = [node] if node is not None and node.sha256 == entry["packet_sha256"] else []
-            if not matched:
-                problems.append(f"{where}: decides {entry['packet']}, which isn't here with that hash "
-                                f"(missing, renamed or changed since)")
-            else:
-                # The line's own description of what was decided must agree
-                # with the packet it names (Kate's round-3 review on #9).
-                clash = [field for field, mine in (("original_sha256", node.original_sha256),
-                                                   ("edition", node.edition),
-                                                   ("edition_sha256", node.edition_sha256))
-                         if entry[field] != mine]
-                if clash:
-                    problems.append(f"{where}: {', '.join(clash)} contradict{'s' if len(clash) == 1 else ''} "
-                                    f"the packet it names ({named})")
-            link = "recorded"
-        else:
-            # Older lines name only the original and edition. Every packet with
-            # that pair is a candidate; the link is inferred, never confirmed.
-            matched = [n for n in nodes.values()
-                       if n.edition_sha256 == entry["edition_sha256"]
-                       and n.original_sha256 == entry["original_sha256"]]
-            link = "inferred"
-            if not matched:
-                # Codex review on #9: a missing packet is a problem for older
-                # lines too, or history looks complete when it isn't.
-                problems.append(f"{where}: decides edition {entry['edition']}, "
-                                f"but no packet here has that original and edition")
-            elif len(matched) > 1:
-                problems.append(f"{where}: older line names no packet and matches {len(matched)}; "
-                                f"which one was decided is unknown")
+        matched, link = _match_packets(source, entry, has_packet, nodes, where, problems)
         event = {"line": number, "at": entry["at"], "decision": entry["decision"], "by": entry["by"],
                  "note": entry.get("note", ""), "packets": sorted(n.name for n in matched), "link": link}
         if link == "inferred" and len(matched) > 1:

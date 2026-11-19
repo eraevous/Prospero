@@ -230,6 +230,14 @@ class ReviewTest(PacketTestCase):
         with self.assertRaises(RecordError):
             render_review({"format": "something else"})
 
+    def test_the_format_the_builder_writes_is_the_one_the_sheet_reads(self):
+        # One name, defined in build.py: a packet written by build is never
+        # refused as "not a packet" because the two modules drifted apart.
+        from prospero.packet.build import PACKET_FORMAT
+        packet = self.packet_dict()
+        self.assertEqual(packet["format"], PACKET_FORMAT)
+        render_review(packet, source=self.source)  # accepted, no RecordError
+
     def test_cli_writes_beside_the_packet_and_can_regenerate(self):
         write_packet(self.build(), self.home / "packets", "first")
         for _ in range(2):  # a sheet is a view: writing it again replaces it

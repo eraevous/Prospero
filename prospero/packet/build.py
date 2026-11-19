@@ -50,6 +50,10 @@ from .sources import Source, SourceError
 # "interpretation": the agent's reading of what the original means.
 KINDS = ("agent addition", "transformation", "interpretation")
 
+# The format every packet names in its "format" field. Readers (review.py)
+# refuse anything else, so the writer and the readers share this one name.
+PACKET_FORMAT = "prospero.editorial-packet.v0"
+
 # Text between straight or curly double quotation marks. Single quotes are left
 # alone because apostrophes make them ambiguous in ordinary prose. A quotation
 # may run across line breaks, as quotations in prose often do.
@@ -97,7 +101,7 @@ class Packet:
 
     def to_dict(self) -> dict:
         return {
-            "format": "prospero.editorial-packet.v0",
+            "format": PACKET_FORMAT,
             "original": {"name": self.original_name, "sha256": self.original_sha256, "text": self.original},
             "edition": {"name": self.edition_name, "sha256": self.edition_sha256, "text": self.edition},
             "changes": self.changes,
