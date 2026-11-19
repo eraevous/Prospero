@@ -24,8 +24,9 @@ import subprocess
 import sys
 from html.parser import HTMLParser
 
-# Pandoc AST block/inline types whose string content is author text.
-_TEXT_LEAVES = {"Str", "Code", "CodeBlock", "Math", "RawInline"}
+
+class UnsupportedSource(ValueError):
+    """The source holds raw content the check cannot read as text, so it refuses rather than guess."""
 
 
 def source_streams(md_path):
@@ -56,7 +57,16 @@ def streams_from_ast(ast):
             walk_collect(content[1], alt)
             out["alts"].append("".join(alt))
         elif kind == "RawInline" or kind == "RawBlock":
-            return  # e.g. HTML comments: not rendered as text
+            # Raw HTML is author content: its visible text counts (comments and <script>/<style> don't).
+            # Any other raw format (LaTeX, ...) is refused, never silently treated as empty.
+            fmt, text = content
+            if fmt != "html":
+                raise UnsupportedSource(f"raw {fmt} content is not supported by the render check")
+            raw = _Rendered()
+            raw.feed(text)
+            raw.close()
+            out[stream].append("".join(raw.body + raw.notes))
+            out["alts"].extend(raw.alts)
         elif kind in ("Code", "CodeBlock", "Math"):
             out[stream].append(content[-1])
         elif kind == "Str":
@@ -113,7 +123,9 @@ class _Rendered(HTMLParser):
         if tag in ("br", "hr", "meta", "link", "input", "source", "wbr"):
             return
         mode = None
-        if tag in self.SKIP_TAGS or classes & self.SKIP_CLASSES or attrs.get("aria-hidden") == "true" and tag != "figcaption":
+        # Only named renderer decorations are skipped. aria-hidden is not a reason: it hides content from
+        # screen readers, not from sighted readers, so its text still counts.
+        if tag in self.SKIP_TAGS or classes & self.SKIP_CLASSES:
             mode = "skip"
         elif classes & self.NOTE_CLASSES:
             mode = "notes"

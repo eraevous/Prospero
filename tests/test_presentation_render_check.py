@@ -65,6 +65,28 @@ class RenderCheckTest(unittest.TestCase):
     def test_alt_change_fails(self):
         self.assertTrue(self.problems(FAITHFUL.replace("alt=\"a 'small' picture\"", 'alt="a picture"')))
 
+    def test_aria_hidden_prose_counts(self):
+        # Review finding (Copilot, PR #16): aria-hidden text is still visible, so added prose there must fail.
+        self.assertTrue(self.problems(FAITHFUL.replace("<section", '<p aria-hidden="true">Unexpected added prose.</p><section')))
+
+    def test_raw_html_text_counts(self):
+        # Review finding (Copilot, PR #16): visible text in raw HTML is author text, not nothing.
+        ast = json.loads(json.dumps(SOURCE_AST))
+        ast["blocks"].append({"t": "RawBlock", "c": ["html", "<p>Keep this line.</p><!-- a comment -->"]})
+        src = render_check.streams_from_ast(ast)
+        faithful = FAITHFUL.replace("<section", "<p>Keep this line.</p><section")
+        for html, ok in ((faithful, True), (FAITHFUL, False)):
+            path = os.path.join(self.dir, "r.html")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(html)
+            self.assertEqual(render_check.compare(src, render_check.rendered_streams(path)) == [], ok)
+
+    def test_other_raw_formats_refused(self):
+        ast = json.loads(json.dumps(SOURCE_AST))
+        ast["blocks"].append({"t": "RawBlock", "c": ["latex", "\\newpage"]})
+        with self.assertRaises(render_check.UnsupportedSource):
+            render_check.streams_from_ast(ast)
+
     def test_whitespace_and_wrapping_ignored(self):
         self.assertEqual(self.problems(FAITHFUL.replace("A \"quoted\" word", "A\n  \"quoted\"\n word")), [])
 
