@@ -7,6 +7,14 @@ reproducing them, one test each.
 2. A source file that isn't UTF-8 made every command end in a traceback
    (``UnicodeDecodeError``) instead of ``error: ...`` and exit 1.
 
+Security pass, 2026-11-19 (idle work): a spec that is valid JSON but the wrong
+shape (a list, a string, ``"changes": "..."``, a number where text belongs)
+made ``build`` end in an ``AttributeError`` traceback or a confusing
+``find() argument`` message. Found by the 2026-11-18 content-leak audit
+(HO-PRO-20261118-62RW, item 2). ``build_packet`` now checks the spec's shape
+first and raises ``SpecError``; the message names the field and the type,
+never the value, since a spec quotes the person's writing.
+
 All text is invented for these tests (synthetic); none of it is anyone's
 writing (DEC-183, DEC-184).
 """
@@ -19,7 +27,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from prospero.packet import SourceError
+from prospero.packet import SourceError, SpecError
 from prospero.packet.__main__ import main
 
 from test_packet import SPEC, PacketTestCase
@@ -64,6 +72,48 @@ class SecurityPassTest(PacketTestCase):
         self.assertEqual(code, 1)
         self.assertIn("not UTF-8", err)
         self.assertFalse((self.home / "spec.json").exists())
+
+
+    # Each case is valid JSON that is not a spec. Before the fix, the first
+    # five ended in a traceback and the last two in a TypeError's wording.
+    BAD_SPECS = [
+        ("a string", "the spec must be a JSON object, not a string"),
+        ([SPEC], "the spec must be a JSON object, not a list"),
+        (None, "the spec must be a JSON object, not null"),
+        ({"changes": "SENTINEL-TEXT"}, "spec 'changes' must be a list, not a string"),
+        ({"changes": [7]}, "spec 'changes' entry 1 must be an object, not a number"),
+        ({"changes": [{"edition_text": ["SENTINEL-TEXT"]}]},
+         "spec 'changes' entry 1: 'edition_text' must be text or null, not a list"),
+        ({"quotations": [{"text": {"SENTINEL-TEXT": 1}}]},
+         "spec 'quotations' entry 1: 'text' must be text, not an object"),
+    ]
+
+    def test_a_wrongly_shaped_spec_is_one_error_line_and_no_packet(self):
+        for bad, message in self.BAD_SPECS:
+            with self.subTest(spec=bad):
+                self.write("spec.json", json.dumps(bad))
+                code, out, err = self.run_cli("build", "original.txt", "edition.txt", "spec.json", "--stem", "p1")
+                self.assertEqual(code, 1)
+                self.assertEqual(err, f"error: {message}\n")
+                self.assertNotIn("Traceback", out + err)
+                self.assertNotIn("SENTINEL", out + err)  # values never echoed
+                self.assertFalse((self.home / "packets").exists())
+
+    def test_build_packet_raises_spec_error_for_library_callers(self):
+        with self.assertRaises(SpecError):
+            self.build(spec={"changes": [{"rationale": 5}]})
+        with self.assertRaises(SpecError):  # true is not text, though bool is an int in Python
+            self.build(spec={"changes": [{"id": True}]})
+
+    def test_the_shapes_draft_spec_writes_still_build(self):
+        # draft-spec leaves "kind": null and an empty rationale, and adds "_draft";
+        # numeric ids are allowed (the builder stringifies them).
+        spec = {"_draft": "note", "changes": [{"id": 3, "kind": None, "rationale": "",
+                                               "edition_text": None, "original_text": "failed"}],
+                "quotations": [{"text": "x", "source": None, "speaker": None}]}
+        packet = self.build(spec=spec)
+        self.assertFalse(packet.ok)  # unlabelled, as drafted: checks fail, nothing raises
+        self.assertEqual(packet.changes[0]["id"], "3")
 
 
 if __name__ == "__main__":
