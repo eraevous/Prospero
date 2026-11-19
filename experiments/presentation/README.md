@@ -14,6 +14,7 @@ browser are **external tools for the experiment**, not project dependencies (not
 | `arm_b/build.sh`, `arm_b/house.css` | Arm B: Markdown → pandoc 3.1.3 (`markdown-smart`) → HTML + house CSS |
 | `out/arm_b/` | Arm B output: full self-contained pages and body-only `*.substack.html` |
 | `render_check.py` | Fails on any character difference between the source and the rendered text (whitespace ignored) |
+| `fixtures/` | A tiny invented source and the AST pandoc 3.1.3 wrote for it, so the unit tests run without pandoc |
 | `screenshots/` | Arm B at phone (390 px) and desktop (1280 px), light, plus dark mode for one essay |
 | `SUBSTACK_CHECKLIST.md` | The manual paste step for Zach, with a table to record what survived |
 

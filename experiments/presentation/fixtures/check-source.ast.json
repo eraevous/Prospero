@@ -1,0 +1,178 @@
+{
+ "pandoc-api-version": [
+  1,
+  23,
+  1
+ ],
+ "meta": {
+  "pagetitle": {
+   "t": "MetaInlines",
+   "c": [
+    {
+     "t": "Str",
+     "c": "t"
+    }
+   ]
+  }
+ },
+ "blocks": [
+  {
+   "t": "Para",
+   "c": [
+    {
+     "t": "Str",
+     "c": "A"
+    },
+    {
+     "t": "Space"
+    },
+    {
+     "t": "Str",
+     "c": "\"quoted\""
+    },
+    {
+     "t": "Space"
+    },
+    {
+     "t": "Str",
+     "c": "word"
+    },
+    {
+     "t": "Space"
+    },
+    {
+     "t": "Str",
+     "c": "--"
+    },
+    {
+     "t": "Space"
+    },
+    {
+     "t": "Str",
+     "c": "and"
+    },
+    {
+     "t": "Space"
+    },
+    {
+     "t": "Str",
+     "c": "it's"
+    },
+    {
+     "t": "Space"
+    },
+    {
+     "t": "Str",
+     "c": "done..."
+    },
+    {
+     "t": "Note",
+     "c": [
+      {
+       "t": "Para",
+       "c": [
+        {
+         "t": "Str",
+         "c": "Note"
+        },
+        {
+         "t": "Space"
+        },
+        {
+         "t": "Str",
+         "c": "with"
+        },
+        {
+         "t": "Space"
+        },
+        {
+         "t": "Str",
+         "c": "\"quotes\"."
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "t": "Figure",
+   "c": [
+    [
+     "",
+     [],
+     []
+    ],
+    [
+     null,
+     [
+      {
+       "t": "Plain",
+       "c": [
+        {
+         "t": "Str",
+         "c": "a"
+        },
+        {
+         "t": "Space"
+        },
+        {
+         "t": "Str",
+         "c": "'small'"
+        },
+        {
+         "t": "Space"
+        },
+        {
+         "t": "Str",
+         "c": "picture"
+        }
+       ]
+      }
+     ]
+    ],
+    [
+     {
+      "t": "Plain",
+      "c": [
+       {
+        "t": "Image",
+        "c": [
+         [
+          "",
+          [],
+          []
+         ],
+         [
+          {
+           "t": "Str",
+           "c": "a"
+          },
+          {
+           "t": "Space"
+          },
+          {
+           "t": "Str",
+           "c": "'small'"
+          },
+          {
+           "t": "Space"
+          },
+          {
+           "t": "Str",
+           "c": "picture"
+          }
+         ],
+         [
+          "p.svg",
+          ""
+         ]
+        ]
+       }
+      ]
+     }
+    ]
+   ]
+  }
+ ]
+}

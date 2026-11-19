@@ -1,12 +1,14 @@
 """Tests for the presentation experiment's render check (HO-PRO-20261118-FMYG, DEC-253).
 
 The check must pass a faithful render and fail one that rewrites quotes or dashes, drops a word, or changes
-alt text. It reads Markdown through the pandoc binary, an external tool the experiment uses (not a project
-dependency), so these tests skip when pandoc is not installed.
+alt text. The check normally reads Markdown through the pandoc binary (an external tool for the experiment, not a
+project dependency); these tests use the AST pandoc 3.1.3 wrote for fixtures/check-source.md, checked in as
+fixtures/check-source.ast.json, so they run without pandoc.
 """
 
 import importlib.util
 import os
+import json
 import shutil
 import tempfile
 import unittest
@@ -18,17 +20,9 @@ spec = importlib.util.spec_from_file_location("render_check", os.path.join(EXP, 
 render_check = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(render_check)
 
-# Invented text for the test.
-SOURCE = """---
-pagetitle: t
----
-
-A "quoted" word -- and it's done...[^n]
-
-![a 'small' picture](p.svg)
-
-[^n]: Note with "quotes".
-"""
+# Invented text for the test: fixtures/check-source.md, read as pandoc's AST.
+with open(os.path.join(EXP, "fixtures", "check-source.ast.json"), encoding="utf-8") as _fh:
+    SOURCE_AST = json.load(_fh)
 
 FAITHFUL = """<html><head><title>t</title></head><body>
 <p>A "quoted" word -- and it's done...<a class="footnote-ref" href="#fn1"><sup>1</sup></a></p>
@@ -37,13 +31,9 @@ FAITHFUL = """<html><head><title>t</title></head><body>
 </body></html>"""
 
 
-@unittest.skipUnless(shutil.which("pandoc"), "pandoc not installed")
 class RenderCheckTest(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
-        self.src = os.path.join(self.dir, "s.md")
-        with open(self.src, "w", encoding="utf-8") as fh:
-            fh.write(SOURCE)
 
     def tearDown(self):
         shutil.rmtree(self.dir)
@@ -52,7 +42,7 @@ class RenderCheckTest(unittest.TestCase):
         path = os.path.join(self.dir, "r.html")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(html)
-        return render_check.compare(render_check.source_streams(self.src), render_check.rendered_streams(path))
+        return render_check.compare(render_check.streams_from_ast(SOURCE_AST), render_check.rendered_streams(path))
 
     def test_faithful_render_passes(self):
         self.assertEqual(self.problems(FAITHFUL), [])

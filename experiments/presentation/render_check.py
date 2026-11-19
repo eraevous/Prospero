@@ -33,6 +33,11 @@ def source_streams(md_path):
     ast = json.loads(subprocess.run(
         ["pandoc", "--from=markdown-smart", "--to=json", md_path],
         check=True, capture_output=True, text=True).stdout)
+    return streams_from_ast(ast)
+
+
+def streams_from_ast(ast):
+    """The same three streams from an already-parsed pandoc AST (lets tests run without pandoc)."""
     out = {"body": [], "notes": [], "alts": []}
 
     def walk(node, stream):
