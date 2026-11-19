@@ -4,6 +4,10 @@
 increment), revisions and history (second), a side-by-side review sheet and spec drafting (third), and a JSON history
 view, all merged by 2026-11-17 and tested on invented text only. Running it on Zach's own writing (the pilot) is his call and happens outside this repository.
 
+A labelled presentation experiment (DEC-253, DEC-200) is also merged, in [experiments/presentation/](experiments/presentation/README.md):
+Arm B (pandoc + a house stylesheet) is done and passes its render check; Arm A (Quarto) has not run yet; the Substack paste
+check waits on Zach. The experiment uses pandoc and a browser as external tools: nothing in `prospero/` imports them.
+
 ## What it is for
 
 Zach has not yet stated the purpose in his own words. When he does, it becomes the purpose record `P0` in
@@ -122,7 +126,8 @@ authorized (DEC-183); links to the old name redirect.
 ## Working here
 
 - Read [AGENTS.md](AGENTS.md) before changing anything, whether you are a person or an agent.
-- Tests: `python3 -m unittest discover -s tests -v` (standard library only, Python 3.10+).
+- Tests: `python3 -m unittest discover -s tests -v` (standard library only, Python 3.10+). The presentation experiment's
+  render-check tests read a checked-in pandoc AST, so they run without pandoc.
 - Purpose records: `.aec/` ([Telosmith](https://github.com/eraevous/Telosmith)). CI runs `aec check` on every push.
 
 ## Licence and contributions
