@@ -168,6 +168,54 @@ def _differences(original: str, edition: str) -> list[dict]:
     return found
 
 
+class SpecError(ValueError):
+    """The spec is not shaped as ``build_packet`` expects (security pass,
+    2026-11-19). A spec is hand-edited JSON, so a wrong shape is an ordinary
+    mistake: it gets one plain message, not a Python traceback."""
+
+
+# Which fields each spec entry may carry, and the only types they may have.
+# ``None`` (JSON null) is allowed wherever the builder already reads a missing
+# field as empty; ``draft-spec`` writes ``"kind": null`` for a person to fill.
+_TEXT = (str, type(None))
+_CHANGE_FIELDS = {"id": (str, int, type(None)), "kind": _TEXT, "rationale": _TEXT,
+                  "edition_text": _TEXT, "original_text": _TEXT}
+_QUOTATION_FIELDS = {"text": (str,), "source": _TEXT, "speaker": _TEXT}
+
+
+def _type_name(value: object) -> str:
+    """The JSON name for a value's type, for messages."""
+    if isinstance(value, bool):
+        return "true/false"
+    return {dict: "an object", list: "a list", str: "a string", int: "a number",
+            float: "a number", type(None): "null"}.get(type(value), type(value).__name__)
+
+
+def check_spec_shape(spec: object) -> None:
+    """Raise ``SpecError`` unless ``spec`` is an object whose ``changes`` and
+    ``quotations`` (each optional) are lists of objects with fields of the
+    right types. Messages name the field and the type found, never the value:
+    the spec quotes the person's writing, and errors end up in terminals and
+    logs (the 2026-11-18 content-leak audit). Unknown fields are left alone,
+    as before (``draft-spec`` writes ``_draft``)."""
+    if not isinstance(spec, dict):
+        raise SpecError(f"the spec must be a JSON object, not {_type_name(spec)}")
+    for key, fields in (("changes", _CHANGE_FIELDS), ("quotations", _QUOTATION_FIELDS)):
+        entries = spec.get(key, [])
+        if not isinstance(entries, list):
+            raise SpecError(f"spec {key!r} must be a list, not {_type_name(entries)}")
+        for index, entry in enumerate(entries, start=1):
+            if not isinstance(entry, dict):
+                raise SpecError(f"spec {key!r} entry {index} must be an object, not {_type_name(entry)}")
+            for field_name, allowed in fields.items():
+                if field_name in entry and (not isinstance(entry[field_name], allowed)
+                                            or isinstance(entry[field_name], bool)):
+                    raise SpecError(f"spec {key!r} entry {index}: {field_name!r} must be text"
+                                    f"{' or a number' if int in allowed else ''}"
+                                    f"{' or null' if type(None) in allowed else ''}, "
+                                    f"not {_type_name(entry[field_name])}")
+
+
 def build_packet(source: Source, original_name: str, edition_name: str, spec: dict,
                  edition_source: Source | None = None, parent: dict | None = None) -> Packet:
     """Read both texts, resolve the spec against them and run every check.
@@ -177,6 +225,7 @@ def build_packet(source: Source, original_name: str, edition_name: str, spec: di
     ``lineage.parent_ref`` when this packet revises an earlier one; it is only
     stored, never used to change the parent.
     """
+    check_spec_shape(spec)
     edition_source = edition_source or source
     original = source.read(original_name)
     original_hash = sha256(original)

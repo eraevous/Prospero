@@ -8,7 +8,7 @@ and history, ``review.py`` for the side-by-side HTML review sheet, and ``manifes
 sockets this tool declares (DEC-177). Run ``python3 -m prospero.packet --help``.
 """
 
-from .build import KINDS, Check, Packet, build_packet
+from .build import KINDS, Check, Packet, SpecError, build_packet, check_spec_shape
 from .draft import draft_spec, write_spec
 from .lineage import History, LineageError, history, parent_ref, render_history
 from .record import DECISIONS, RecordError, record_decision, render_markdown, write_packet
@@ -16,7 +16,7 @@ from .review import render_review, write_review
 from .sources import FolderSource, Source, SourceError, content_home
 
 __all__ = [
-    "KINDS", "Check", "Packet", "build_packet",
+    "KINDS", "Check", "Packet", "SpecError", "build_packet", "check_spec_shape",
     "DECISIONS", "RecordError", "record_decision", "render_markdown", "write_packet",
     "draft_spec", "write_spec",
     "History", "LineageError", "history", "parent_ref", "render_history",

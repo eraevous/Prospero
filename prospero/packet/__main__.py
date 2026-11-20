@@ -27,7 +27,7 @@ import json
 import sys
 from pathlib import Path
 
-from .build import build_packet, sha256
+from .build import SpecError, build_packet, sha256
 from .draft import draft_spec, write_spec
 from .lineage import LineageError, history, parent_ref, render_history
 from .review import original_status, write_review
@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
                                 packet_name=args.packet, packet_sha256=sha256(packet_text))
         print(f"recorded {entry['decision']} by {entry['by']} at {entry['at']}")
         return 0
-    except (SourceError, RecordError, LineageError, json.JSONDecodeError, KeyError, TypeError) as error:
+    except (SourceError, SpecError, RecordError, LineageError, json.JSONDecodeError, KeyError, TypeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
