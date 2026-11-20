@@ -25,6 +25,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DECISIONS = ("accept", "reject", "revise")
 DECISION_LOG = "decisions.jsonl"
+# A packet is written as <stem>.packet.json (and a .packet.md view). history
+# lists packets by this suffix and the review sheet strips it to name itself.
+PACKET_SUFFIX = ".packet.json"
 
 
 class RecordError(Exception):
@@ -75,7 +78,7 @@ def write_packet(packet: Packet, out_dir: str | Path, stem: str) -> tuple[Path, 
     if stem in ("", ".", "..") or "/" in stem or "\\" in stem or Path(stem).name != stem:
         raise RecordError(f"stem must be a plain file name, not {stem!r}")
     folder = _outside_repo(Path(out_dir))
-    json_path, md_path = folder / f"{stem}.packet.json", folder / f"{stem}.packet.md"
+    json_path, md_path = folder / f"{stem}{PACKET_SUFFIX}", folder / f"{stem}.packet.md"
     for path in (json_path, md_path):
         if path.resolve().parent != folder:
             raise RecordError(f"{path.name} would land outside {folder}")

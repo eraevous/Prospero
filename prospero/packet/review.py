@@ -37,11 +37,9 @@ from pathlib import Path
 
 # _covered is the builder's own coverage test (the union of labelled spans),
 # so a word the checks accept is never marked unlabelled here (Codex on #10).
-from .build import KINDS, QUOTE_RE, _covered, _differences, _find_span, sha256
-from .record import RecordError, _outside_repo
+from .build import KINDS, PACKET_FORMAT, QUOTE_RE, _covered, _differences, _find_span, sha256
+from .record import PACKET_SUFFIX, RecordError, _outside_repo
 from .sources import Source, SourceError
-
-FORMAT = "prospero.editorial-packet.v0"
 
 # The first line of every sheet. write_review only replaces a file that starts
 # with it, so it can never overwrite a text that happens to have the sheet's
@@ -196,7 +194,7 @@ def original_status(packet: dict, source: Source | None) -> tuple[bool | None, s
 
 def render_review(packet: dict, packet_name: str = "PACKET.json", source: Source | None = None) -> str:
     """The review sheet for one packet (a dict as written by ``write_packet``)."""
-    if not isinstance(packet, dict) or packet.get("format") != FORMAT:
+    if not isinstance(packet, dict) or packet.get("format") != PACKET_FORMAT:
         found = packet.get("format") if isinstance(packet, dict) else type(packet).__name__
         raise RecordError(f"not an editorial packet (format {found!r})")
     esc = html.escape
@@ -328,7 +326,7 @@ def write_review(packet_text: str, packet_name: str, out_dir: str | Path, source
     packet = json.loads(packet_text)
     page = render_review(packet, packet_name, source)
     stem = Path(packet_name).name
-    stem = stem[: -len(".packet.json")] if stem.endswith(".packet.json") else Path(stem).stem
+    stem = stem[: -len(PACKET_SUFFIX)] if stem.endswith(PACKET_SUFFIX) else Path(stem).stem
     folder = _outside_repo(Path(out_dir))
     path = folder / f"{stem}.review.html"
     if path.is_symlink():
