@@ -7,11 +7,12 @@ How it works, in plain terms:
   * The approved source is the Markdown file. Pandoc *reads* it with smart punctuation turned off
     (`markdown-smart`), giving the exact characters the author typed, as a tree (pandoc's JSON AST).
   * The rendered page is read with Python's own HTML parser.
-  * From both sides we take three streams of text and compare them character by character, ignoring only
+  * From both sides we take four streams of text and compare them character by character, ignoring only
     whitespace (line wrapping is presentation, not wording):
-      body  - the running text, in reading order;
-      notes - footnote text (renderers move notes to the end, so they get their own stream);
-      alts  - image alt texts (they live in attributes, not in visible text).
+      body      - the running text, in reading order;
+      notes     - footnote text (renderers move notes to the end, so they get their own stream);
+      alts      - alt texts of images in the running text (they live in attributes, not in visible text);
+      note_alts - alt texts of images inside footnotes (they move with their notes).
   * Things a renderer adds that are not words (footnote numbers, back-link arrows) are skipped by their
     standard class names; anything else extra or missing is a failure.
 
@@ -30,7 +31,8 @@ class UnsupportedSource(ValueError):
 
 
 def source_streams(md_path):
-    """Return {'body': str, 'notes': str, 'alts': [str]} from the Markdown source, whitespace removed."""
+    """Return {'body': str, 'notes': str, 'alts': [str], 'note_alts': [str]} from the Markdown source,
+    whitespace removed."""
     ast = json.loads(subprocess.run(
         ["pandoc", "--from=markdown-smart", "--to=json", md_path],
         check=True, capture_output=True, text=True).stdout)
@@ -38,8 +40,10 @@ def source_streams(md_path):
 
 
 def streams_from_ast(ast):
-    """The same three streams from an already-parsed pandoc AST (lets tests run without pandoc)."""
-    out = {"body": [], "notes": [], "alts": []}
+    """The same four streams from an already-parsed pandoc AST (lets tests run without pandoc)."""
+    out = {"body": [], "notes": [], "alts": [], "note_alts": []}
+    # Each text stream has its own alt list, so an image in a note moves with the note (Codex, PR #16).
+    alt_list = {"body": "alts", "notes": "note_alts"}
 
     def walk(node, stream):
         if isinstance(node, list):
@@ -52,10 +56,10 @@ def streams_from_ast(ast):
         if kind == "Note":
             walk(content, "notes")
         elif kind == "Image":
-            # c = [attr, alt inlines, target]; alt goes to its own list.
+            # c = [attr, alt inlines, target]; alt goes to the alt list of the stream it sits in.
             alt = []
             walk_collect(content[1], alt)
-            out["alts"].append("".join(alt))
+            out[alt_list[stream]].append("".join(alt))
         elif kind == "RawInline" or kind == "RawBlock":
             # Raw HTML is author content: its visible text counts (comments and <script>/<style> don't).
             # Any other raw format (LaTeX, ...) is refused, never silently treated as empty.
@@ -66,7 +70,7 @@ def streams_from_ast(ast):
             raw.feed(text)
             raw.close()
             out[stream].append("".join(raw.body + raw.notes))
-            out["alts"].extend(raw.alts)
+            out[alt_list[stream]].extend(raw.alts + raw.note_alts)
         elif kind in ("Code", "CodeBlock", "Math"):
             out[stream].append(content[-1])
         elif kind == "Str":
@@ -89,11 +93,11 @@ def streams_from_ast(ast):
     walk(ast["blocks"], "body")
     squash = lambda s: "".join(s.split())
     return {"body": squash("".join(out["body"])), "notes": squash("".join(out["notes"])),
-            "alts": [squash(a) for a in out["alts"]]}
+            "alts": [squash(a) for a in out["alts"]], "note_alts": [squash(a) for a in out["note_alts"]]}
 
 
 class _Rendered(HTMLParser):
-    """Collects body text, footnote text and alt texts from a rendered page."""
+    """Collects body text, footnote text, and body and footnote alt texts from a rendered page."""
 
     # Elements whose text is never page content.
     SKIP_TAGS = {"head", "script", "style", "template", "noscript"}
@@ -105,7 +109,7 @@ class _Rendered(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.stack = []  # (tag, mode) where mode is 'skip', 'notes' or None
-        self.body, self.notes, self.alts = [], [], []
+        self.body, self.notes, self.alts, self.note_alts = [], [], [], []
 
     def _mode(self):
         for _, mode in reversed(self.stack):
@@ -117,8 +121,9 @@ class _Rendered(HTMLParser):
         attrs = dict(attrs)
         classes = set((attrs.get("class") or "").split())
         if tag == "img":
-            if self._mode() != "skip":
-                self.alts.append("".join((attrs.get("alt") or "").split()))
+            mode = self._mode()
+            if mode != "skip":
+                (self.note_alts if mode == "notes" else self.alts).append("".join((attrs.get("alt") or "").split()))
             return  # void element
         if tag in ("br", "hr", "meta", "link", "input", "source", "wbr"):
             return
@@ -149,7 +154,8 @@ def rendered_streams(html_path):
     with open(html_path, encoding="utf-8") as fh:
         parser.feed(fh.read())
     squash = lambda parts: "".join("".join(parts).split())
-    return {"body": squash(parser.body), "notes": squash(parser.notes), "alts": parser.alts}
+    return {"body": squash(parser.body), "notes": squash(parser.notes), "alts": parser.alts,
+            "note_alts": parser.note_alts}
 
 
 def first_difference(a, b):
@@ -168,8 +174,9 @@ def compare(src, out):
         if i is not None:
             problems.append(f"{key}: first difference at character {i}: "
                             f"source {src[key][max(0, i - 25):i + 25]!r} vs rendered {out[key][max(0, i - 25):i + 25]!r}")
-    if src["alts"] != out["alts"]:
-        problems.append(f"alts: source {src['alts']!r} vs rendered {out['alts']!r}")
+    for key in ("alts", "note_alts"):
+        if src[key] != out[key]:
+            problems.append(f"{key}: source {src[key]!r} vs rendered {out[key]!r}")
     return problems
 
 
