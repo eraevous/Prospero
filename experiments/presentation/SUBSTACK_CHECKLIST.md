@@ -1,6 +1,6 @@
 # Substack paste check (manual step for Zach; HO-PRO-20261118-FMYG, DEC-253)
 
-Substack has no posting API and takes no custom CSS (Observatory packet 05), so the route is: open the
+Substack has no posting API and takes no custom CSS (Observatory packet 05; the Observatory is the Kairos research effort that brings in outside research and practice), so the route is: open the
 body-only HTML in a browser, select all, copy, and paste into a **new, unpublished** Substack draft.
 Nothing here publishes anything; delete the draft afterwards.
 

@@ -14,7 +14,7 @@
 
 - **Standard library first.** Do not add a third-party dependency without a recorded decision.
 - **Parsimony and modularity.** Small modules with one job each; no new subsystem without a dissent review
-  (what purpose it might violate, the evidence for and against, what follows, what to test).
+  (an effective-challenge review of the plan: what purpose it might violate, the evidence for and against, what follows, what to test).
 - **Commented for human readers.** Explain why, not only what. A reader who is not a programmer should be able
   to follow what each module is for.
 - Every change keeps `python3 -m unittest discover -s tests` passing and `aec check` clean.
@@ -32,7 +32,7 @@
 - Tests and examples otherwise use invented synthetic text written for the test.
 - No secrets, tokens or credentials.
 
-## Purpose records (Telosmith)
+## Purpose records (Telosmith, requirements traceability)
 
 `.aec/records.jsonl` is append-only: add a new version of a record instead of editing a line. Before you finish
 a change:
