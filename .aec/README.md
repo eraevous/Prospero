@@ -1,4 +1,4 @@
-# .aec: purpose and justification records (Telosmith, formerly AEC)
+# .aec: purpose and justification records (Telosmith, formerly AEC: requirements traceability)
 
 - `records.jsonl`: append-only reasoning records (purpose, requirements, claims, evidence, decisions,
   authorities). Never edit a line; append a new version. Vocabulary:

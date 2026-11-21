@@ -1,5 +1,8 @@
 # Prospero
 
+Prospero is the writing and editorial tool of Kairos (Zach's umbrella project for Cognitive Augmentation): it keeps
+an original text and a proposed edition side by side so every change is labelled and decided, never silently made.
+
 **Status:** activated 2026-11-09. Editorial-packet mechanics (`prospero/packet/`): packets and decisions (first
 increment), revisions and history (second), a side-by-side review sheet and spec drafting (third), and a JSON history
 view, all merged by 2026-11-17 and tested on invented text only. Running it on Zach's own writing (the pilot) is his call and happens outside this repository.
@@ -14,10 +17,11 @@ Zach has not yet stated the purpose in his own words. When he does, it becomes t
 `.aec/records.jsonl` (a stub until then). Until then, only these facts are adopted:
 
 - Prospero is the name of the creative-collaboration tool formerly called PlayWrite (decision DEC-128, 2026-11-05).
+  DEC-n numbers are entries in Kairos's decision log, which works like architecture decision records (ADRs).
   *Ariel* is reserved for its agent layer, if that layer is ever named separately (same decision).
 - Development was activated on 2026-11-09 (DEC-182).
 - This repository holds the mechanics (code, docs, tests). Zach's own works and corpora stay out; they reach the tool
-  through sockets onto storage outside the repo. Public-domain works are allowed, for example as test text
+  through sockets (interfaces such as an adapter or an MCP resource) onto storage outside the repo. Public-domain works are allowed, for example as test text
   (DEC-183, clarified by DEC-184).
 
 ### Ideas on record, not requirements
@@ -28,7 +32,7 @@ discussion with Zach, not product requirements, and nothing here should be built
 - Zach: a tool to write and publish articles and books with an agent network that keeps his decisions and preferences.
 - Zach: later versions remixed by professional artists (bonsai pruning, a classroom, a tutor, an exercise generator).
 - Zach: the papers that define Cognitive Augmentation are to be written with it.
-- Kate (an assistant in the project, not Zach): "cognitive augmentation for artists", not replacement.
+- ChatGPT (Kate), Zach's ChatGPT partner thread (an assistant, not Zach): "cognitive augmentation for artists", not replacement.
 
 ## Editorial packets
 
@@ -128,7 +132,8 @@ authorized (DEC-183); links to the old name redirect.
 - Read [AGENTS.md](AGENTS.md) before changing anything, whether you are a person or an agent.
 - Tests: `python3 -m unittest discover -s tests -v` (standard library only, Python 3.10+). The presentation experiment's
   render-check tests read a checked-in pandoc AST, so they run without pandoc.
-- Purpose records: `.aec/` ([Telosmith](https://github.com/eraevous/Telosmith)). CI runs `aec check` on every push.
+- Purpose records: `.aec/` ([Telosmith](https://github.com/eraevous/Telosmith), a requirements-traceability tool). CI runs
+  `aec check` on every push.
 
 ## Licence and contributions
 

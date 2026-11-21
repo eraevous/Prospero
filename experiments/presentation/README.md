@@ -47,4 +47,4 @@ another version).
 None yet: the comparison is the point, and Arm A is missing. Arm B meets every presentation target in the
 handoff with one external binary and no template. The open question Arm A answers is whether a mature theme
 looks better enough to justify Quarto's size (a bundled pandoc, Deno and Dart Sass) — attractiveness, which
-determinism doesn't establish (API Kate's review).
+determinism doesn't establish (API Kate's review: the ChatGPT API reviewer, an independent review by a different model family).
