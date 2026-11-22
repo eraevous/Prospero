@@ -34,6 +34,10 @@ from .build import sha256
 from .record import DECISION_LOG, DECISIONS, PACKET_SUFFIX
 from .sources import Source, SourceError
 
+PACKETS = "packets"
+# Names the shape of ``History.to_dict`` so a reader can tell if it changes.
+HISTORY_FORMAT = "prospero.history/1"
+
 
 def _canonical(source: Source, name: str) -> str:
     """The name a record should use for ``name`` (Codex review on #9: an
@@ -68,21 +72,22 @@ def _packet_fields(data) -> tuple[dict, dict, dict | None]:
         raise ValueError("not a JSON object")
     original, edition, parent = data.get("original"), data.get("edition"), data.get("parent")
     for label, part in (("original", original), ("edition", edition)):
-        if not isinstance(part, dict) or not _usable_name(part.get("name")) \
-                or not isinstance(part.get("sha256"), str):
+        if not _file_ref(part):
             raise ValueError(f"{label} must be an object with a non-empty name (no NUL) and sha256")
     if data.get("ok") is not None and not isinstance(data.get("ok"), bool):
         # Codex review on #9: "ok" is rendered as a lookup key, so a list or
         # object there must be caught here, not crash the report.
         raise ValueError("ok must be true, false or absent")
-    if parent is not None and not (isinstance(parent, dict) and _usable_name(parent.get("name"))
-                                   and isinstance(parent.get("sha256"), str)):
+    if parent is not None and not _file_ref(parent):
         raise ValueError("parent must be null or an object with a non-empty name (no NUL) and sha256")
     return original, edition, parent
 
-PACKETS = "packets"
-# Names the shape of ``History.to_dict`` so a reader can tell if it changes.
-HISTORY_FORMAT = "prospero.history/1"
+
+def _file_ref(part) -> bool:
+    """Whether ``part`` is a ``{"name", "sha256"}`` reference to a file: the
+    one shape a packet uses for its original, its edition and its parent."""
+    return isinstance(part, dict) and _usable_name(part.get("name")) and isinstance(part.get("sha256"), str)
+
 
 
 class LineageError(Exception):
@@ -247,18 +252,17 @@ def _check_links(source: Source, nodes: dict[str, Node], current: str, problems:
     for node in nodes.values():
         node.children.sort()
     # Content hashes make a true cycle practically impossible, but a parent
-    # field is only data in a file, so check rather than assume.
+    # field is only data in a file, so check rather than assume. The walk
+    # follows the links made just above (``linked_parent``), so it resolves no
+    # name a second time; a broken link is None and ends the walk.
     for name in sorted(nodes):
         seen, cursor = set(), name
-        while cursor in nodes and nodes[cursor].parent:
+        while cursor is not None:
             if cursor in seen:
                 problems.append(f"{name}: its ancestry loops back on itself")
                 break
             seen.add(cursor)
-            try:
-                cursor = _canonical(source, nodes[cursor].parent["name"])
-            except SourceError:
-                break
+            cursor = nodes[cursor].linked_parent
 
 
 def _read_log(source: Source, problems: list[str]) -> str:
