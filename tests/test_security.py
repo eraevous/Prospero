@@ -15,6 +15,13 @@ made ``build`` end in an ``AttributeError`` traceback or a confusing
 first and raises ``SpecError``; the message names the field and the type,
 never the value, since a spec quotes the person's writing.
 
+Security pass, 2026-11-22 (idle work): the same for ``review``. A packet is a
+JSON file in the person's folder and can be hand-edited or damaged; a wrong
+type (a number for a rationale, a string for the change list, a string for a
+quotation's locator) ended ``review`` in an ``AttributeError`` traceback.
+``render_review`` now checks the packet's shape first and raises
+``RecordError``, naming the field and the type, never the value.
+
 All text is invented for these tests (synthetic); none of it is anyone's
 writing (DEC-183, DEC-184).
 """
@@ -114,6 +121,53 @@ class SecurityPassTest(PacketTestCase):
         packet = self.build(spec=spec)
         self.assertFalse(packet.ok)  # unlabelled, as drafted: checks fail, nothing raises
         self.assertEqual(packet.changes[0]["id"], "3")
+
+
+    # Packet fields that write_packet always fills, set to a wrong type by hand.
+    BAD_PACKETS = [
+        (lambda p: p.__setitem__("changes", "SENTINEL-TEXT"), "packet 'changes' must be a list, not a string"),
+        (lambda p: p["changes"].__setitem__(0, "SENTINEL-TEXT"),
+         "packet 'changes' entry 1 must be an object, not a string"),
+        (lambda p: p["changes"][0].__setitem__("rationale", 5),
+         "packet 'changes' entry 1: 'rationale' must be text or null, not a number"),
+        (lambda p: p["changes"][0].__setitem__("original_text", ["SENTINEL-TEXT"]),
+         "packet 'changes' entry 1: 'original_text' must be text or null, not a list"),
+        (lambda p: p["quotations"][0].__setitem__("locator", "SENTINEL-TEXT"),
+         "packet 'quotations' entry 1: 'locator' must be an object, not a string"),
+        (lambda p: p["edition"].__setitem__("name", 3), "packet 'edition': 'name' must be text, not a number"),
+        (lambda p: p["original"].__setitem__("text", True),
+         "packet 'original': 'text' must be text, not true/false"),
+        (lambda p: p.__setitem__("checks", ["SENTINEL-TEXT"]),
+         "packet 'checks' entry 1 must be an object, not a string"),
+        (lambda p: p["checks"][0].__setitem__("problems", [5]),
+         "packet 'checks' entry 1: 'problems' item 1 must be text, not a number"),
+        (lambda p: p.__setitem__("parent", "SENTINEL-TEXT"),
+         "packet 'parent' must be an object or null, not a string"),
+    ]
+
+    def test_a_wrongly_shaped_packet_is_one_error_line_and_no_sheet(self):
+        packet = self.build().to_dict()
+        self.assertTrue(packet["quotations"])  # the locator case needs one
+        for damage, message in self.BAD_PACKETS:
+            with self.subTest(message=message):
+                bad = json.loads(json.dumps(packet))
+                damage(bad)
+                self.write("bad.packet.json", json.dumps(bad))
+                code, out, err = self.run_cli("review", "bad.packet.json")
+                self.assertEqual(code, 1)
+                self.assertEqual(err, f"error: {message}\n")
+                self.assertNotIn("Traceback", out + err)
+                self.assertNotIn("SENTINEL", out + err)  # values never echoed
+                self.assertFalse((self.home / "bad.review.html").exists())
+
+    def test_a_null_rationale_still_renders(self):
+        # The spec allows null where the builder reads empty, so the sheet must too.
+        packet = self.build().to_dict()
+        packet["changes"][0]["rationale"] = None
+        self.write("null.packet.json", json.dumps(packet))
+        code, out, err = self.run_cli("review", "null.packet.json")
+        self.assertNotIn("Traceback", out + err)
+        self.assertTrue((self.home / "null.review.html").exists())
 
 
 if __name__ == "__main__":

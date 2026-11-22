@@ -37,7 +37,8 @@ from pathlib import Path
 
 # _covered is the builder's own coverage test (the union of labelled spans),
 # so a word the checks accept is never marked unlabelled here (Codex on #10).
-from .build import KINDS, PACKET_FORMAT, QUOTE_RE, _covered, _differences, _find_span, sha256
+from .build import (_CHANGE_FIELDS, KINDS, PACKET_FORMAT, QUOTE_RE, _covered, _differences, _find_span,
+                    _type_name, sha256)
 from .record import PACKET_SUFFIX, RecordError, _outside_repo
 from .sources import Source, SourceError
 
@@ -192,11 +193,57 @@ def original_status(packet: dict, source: Source | None) -> tuple[bool | None, s
     return True, "original on disk matches the packet"
 
 
+def _expect(value: object, allowed: tuple, where: str, what: str) -> None:
+    """Raise ``RecordError`` unless ``value`` has one of the ``allowed`` types
+    (true/false never counts as a number). Names the place and the type found,
+    never the value: a packet carries the person's writing."""
+    if not isinstance(value, allowed) or isinstance(value, bool):
+        raise RecordError(f"packet {where} must be {what}, not {_type_name(value)}")
+
+
+def check_packet_shape(packet: dict) -> None:
+    """Raise ``RecordError`` unless every field the sheet reads has the type
+    ``write_packet`` gives it (security pass, 2026-11-22).
+
+    A packet is a JSON file in the person's own folder, so it can be
+    hand-edited or damaged. Before this check a wrong type (a number for a
+    rationale, a string for the change list) ended ``review`` in an
+    ``AttributeError`` traceback. Same rules as the spec check in
+    ``build.check_spec_shape``: the field and the type are named, the value
+    never is, and fields the sheet doesn't read are left alone."""
+    for role in ("original", "edition"):
+        _expect(packet.get(role), (dict,), repr(role), "an object")
+        for field_name in ("name", "text") + (("sha256",) if role == "original" else ()):
+            _expect(packet[role].get(field_name), (str,), f"{role!r}: {field_name!r}", "text")
+    for key in ("changes", "quotations", "checks"):
+        _expect(packet.get(key, []), (list,), repr(key), "a list")
+        for index, entry in enumerate(packet.get(key, []), start=1):
+            _expect(entry, (dict,), f"{key!r} entry {index}", "an object")
+    for index, change in enumerate(packet.get("changes", []), start=1):
+        for field_name, allowed in _CHANGE_FIELDS.items():
+            if field_name in change:
+                what = "text" + (" or a number" if int in allowed else "") + " or null"
+                _expect(change[field_name], allowed, f"'changes' entry {index}: {field_name!r}", what)
+    for index, quote in enumerate(packet.get("quotations", []), start=1):
+        where = f"'quotations' entry {index}"
+        _expect(quote.get("text"), (str,), f"{where}: 'text'", "text")
+        if "speaker" in quote:
+            _expect(quote["speaker"], (str, type(None)), f"{where}: 'speaker'", "text or null")
+        _expect(quote.get("locator"), (dict,), f"{where}: 'locator'", "an object")
+    for index, check in enumerate(packet.get("checks", []), start=1):
+        _expect(check.get("problems", []), (list,), f"'checks' entry {index}: 'problems'", "a list")
+        for number, problem in enumerate(check.get("problems", []), start=1):
+            _expect(problem, (str,), f"'checks' entry {index}: 'problems' item {number}", "text")
+    if packet.get("parent") is not None:
+        _expect(packet["parent"], (dict,), "'parent'", "an object or null")
+
+
 def render_review(packet: dict, packet_name: str = "PACKET.json", source: Source | None = None) -> str:
     """The review sheet for one packet (a dict as written by ``write_packet``)."""
     if not isinstance(packet, dict) or packet.get("format") != PACKET_FORMAT:
         found = packet.get("format") if isinstance(packet, dict) else type(packet).__name__
         raise RecordError(f"not an editorial packet (format {found!r})")
+    check_packet_shape(packet)
     esc = html.escape
     orig_marks, ed_marks = _marks(packet)
     loose = sum(1 for m in orig_marks + ed_marks if m[2] == "loose")
@@ -220,7 +267,7 @@ def render_review(packet: dict, packet_name: str = "PACKET.json", source: Source
         if change.get("edition_text"):
             rows += f'<div class="now"><a href="#e:{cid}">now</a> {esc(change["edition_text"])}</div>'
         cards.append(f'<li class="card {css}"><span class="chip {css}">{esc(str(kind))}</span> '
-                     f'<b>{cid}</b> {esc(change.get("rationale", ""))}{rows}</li>')
+                     f'<b>{cid}</b> {esc(change.get("rationale") or "")}{rows}</li>')
 
     quotes = "".join(
         f'<li>“{esc(q["text"])}”'
