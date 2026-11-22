@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .build import QUOTE_RE, _covered, _differences, _find_span, _word_spans
+from .build import QUOTE_RE, _covered, _differences, _find_span, _overlaps, _word_spans
 from .record import RecordError, _create_new, _outside_repo
 
 
@@ -47,7 +47,7 @@ def _first_at(text: str, start: int, end: int) -> bool:
 
 
 def _overlaps_any(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
-    return any(start < e and s < end for s, e in spans)
+    return any(_overlaps((start, end), span) for span in spans)
 
 
 def _unique_snippet(text: str, span: tuple[int, int],
