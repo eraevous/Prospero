@@ -109,7 +109,9 @@ Packets now record the exact words the `changes-labelled` check found unlabelled
 
 The sheet records nothing: deciding is still `decide`, whose commands the sheet prints. It re-checks the original's
 hash and says plainly when the original has changed since the packet was built. `review` exits 1 when a check failed
-or the original changed (the sheet is still written, so the problems can be seen).
+or the original changed (the sheet is still written, so the problems can be seen). A packet file that was edited by
+hand into the wrong shape (a number where text belongs, say) gets one `error:` line naming the field and the type,
+never its value, and no sheet.
 
 ### What the checks don't catch
 
