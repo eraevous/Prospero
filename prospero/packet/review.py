@@ -232,6 +232,8 @@ def check_packet_shape(packet: dict) -> None:
         _expect(quote.get("locator"), (dict,), f"{where}: 'locator'", "an object")
     for index, check in enumerate(packet.get("checks", []), start=1):
         _expect(check.get("problems", []), (list,), f"'checks' entry {index}: 'problems'", "a list")
+        for number, problem in enumerate(check.get("problems", []), start=1):
+            _expect(problem, (str,), f"'checks' entry {index}: 'problems' item {number}", "text")
     if packet.get("parent") is not None:
         _expect(packet["parent"], (dict,), "'parent'", "an object or null")
 

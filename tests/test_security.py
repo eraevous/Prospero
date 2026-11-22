@@ -139,6 +139,8 @@ class SecurityPassTest(PacketTestCase):
          "packet 'original': 'text' must be text, not true/false"),
         (lambda p: p.__setitem__("checks", ["SENTINEL-TEXT"]),
          "packet 'checks' entry 1 must be an object, not a string"),
+        (lambda p: p["checks"][0].__setitem__("problems", [5]),
+         "packet 'checks' entry 1: 'problems' item 1 must be text, not a number"),
         (lambda p: p.__setitem__("parent", "SENTINEL-TEXT"),
          "packet 'parent' must be an object or null, not a string"),
     ]
