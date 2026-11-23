@@ -1,5 +1,10 @@
+# Runs once per PR (pull_request) and once per push to main, like kairos.yml;
+# a push to a PR branch no longer starts a second, identical run.
 name: tests
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 jobs:
   tests:
     runs-on: ${{ matrix.os }}

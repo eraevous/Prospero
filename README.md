@@ -136,7 +136,7 @@ authorized (DEC-183); links to the old name redirect.
   render-check tests read a checked-in pandoc AST, so they run without pandoc.
 - Purpose records: `.aec/` ([Telosmith](https://github.com/eraevous/Telosmith), a requirements-traceability tool). The
   shared `kairos` workflow (`.github/workflows/kairos.yml`, from eraevous/Lydian; DEC-256) runs `aec check` on every
-  pull request and every push to `main`; `tests.yml` runs the tests on Linux and Windows.
+  pull request and every push to `main`; `tests.yml` runs the tests on Linux and Windows on the same two events.
 
 ## Licence and contributions
 
