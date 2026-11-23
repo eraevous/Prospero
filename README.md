@@ -134,8 +134,9 @@ authorized (DEC-183); links to the old name redirect.
 - Read [AGENTS.md](AGENTS.md) before changing anything, whether you are a person or an agent.
 - Tests: `python3 -m unittest discover -s tests -v` (standard library only, Python 3.10+). The presentation experiment's
   render-check tests read a checked-in pandoc AST, so they run without pandoc.
-- Purpose records: `.aec/` ([Telosmith](https://github.com/eraevous/Telosmith), a requirements-traceability tool). CI runs
-  `aec check` on every push.
+- Purpose records: `.aec/` ([Telosmith](https://github.com/eraevous/Telosmith), a requirements-traceability tool). The
+  shared `kairos` workflow (`.github/workflows/kairos.yml`, from eraevous/Lydian; DEC-256) runs `aec check` on every
+  pull request and every push to `main`; `tests.yml` runs the tests on Linux and Windows.
 
 ## Licence and contributions
 
