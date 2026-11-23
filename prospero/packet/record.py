@@ -82,15 +82,37 @@ def write_packet(packet: Packet, out_dir: str | Path, stem: str) -> tuple[Path, 
     for path in (json_path, md_path):
         if path.resolve().parent != folder:
             raise RecordError(f"{path.name} would land outside {folder}")
-    folder.mkdir(parents=True, exist_ok=True)
+    _make_folder(folder)
     # Check both names before writing either, so a taken .md never leaves a
     # lone .json behind.
     for path in (json_path, md_path):
         if os.path.lexists(path):
             raise RecordError(f"{path.name} already exists; use a new stem")
-    _create_new(json_path, json.dumps(packet.to_dict(), ensure_ascii=False, indent=2) + "\n", "use a new stem")
-    _create_new(md_path, render_markdown(packet), "use a new stem")
+    try:
+        _create_new(json_path, json.dumps(packet.to_dict(), ensure_ascii=False, indent=2) + "\n", "use a new stem")
+    except OSError as error:
+        raise RecordError(f"can't write {json_path.name}: {error.strerror or error}") from error
+    try:
+        _create_new(md_path, render_markdown(packet), "use a new stem")
+    except (OSError, RecordError) as error:
+        # Don't leave a lone .json: remove the one file made just above.
+        json_path.unlink(missing_ok=True)
+        if isinstance(error, RecordError):
+            raise
+        raise RecordError(f"can't write {md_path.name}: {error.strerror or error}") from error
     return json_path, md_path
+
+
+def _make_folder(folder: Path) -> None:
+    """``mkdir -p``, with a failure (a file where the folder should be, no
+    permission, a symlink loop) reported as ``RecordError``, so the command
+    line prints one ``error:`` line rather than a traceback."""
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        if os.path.lexists(folder) and not folder.is_dir():
+            raise RecordError(f"{folder.name} exists but is not a folder") from error
+        raise RecordError(f"can't create {folder.name}/: {error.strerror or error}") from error
 
 
 def _create_new(path: Path, text: str, hint: str) -> None:
@@ -127,7 +149,11 @@ def _open_log(folder: Path, original: Path | None):
     if log.resolve().parent != folder:
         raise RecordError(f"{DECISION_LOG} would land outside {folder}")
     flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(log, flags, 0o644)
+    try:
+        fd = os.open(log, flags, 0o644)
+    except OSError as error:
+        # No permission, or a link planted after the checks above (O_NOFOLLOW).
+        raise RecordError(f"can't open {DECISION_LOG}: {error.strerror or error}") from error
     # Check the file actually opened, not the name: a log with a second hard
     # link (to the edition, another draft or a file in this repository) would
     # append into that file, and the samefile check above only catches the
@@ -179,10 +205,14 @@ def record_decision(log_dir: str | Path, packet_dict: dict, source: Source, deci
         entry["packet"] = packet_name
         entry["packet_sha256"] = packet_sha256
     folder = _outside_repo(Path(log_dir))
-    folder.mkdir(parents=True, exist_ok=True)
+    _make_folder(folder)
     # Sources that live on disk can say where the original is, so the log can
     # be checked not to be the original under another name.
     original_path = source.path_of(original["name"]) if hasattr(source, "path_of") else None
     with _open_log(folder, original_path) as handle:
-        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        try:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            handle.flush()
+        except OSError as error:  # a full disk, say
+            raise RecordError(f"can't append to {DECISION_LOG}: {error.strerror or error}") from error
     return entry

@@ -22,6 +22,13 @@ quotation's locator) ended ``review`` in an ``AttributeError`` traceback.
 ``render_review`` now checks the packet's shape first and raises
 ``RecordError``, naming the field and the type, never the value.
 
+Security pass, 2026-11-23 (idle work): writing errors. ``build``, ``decide``
+and ``review`` ended in an ``OSError`` traceback when the content folder
+couldn't be written: a file named ``packets`` where the packets folder belongs
+(``FileExistsError`` from ``mkdir``), or a folder without write permission.
+``draft-spec`` already reported these as ``error: ...``; the other three now
+do too, and ``build`` never leaves a lone ``.packet.json`` behind.
+
 All text is invented for these tests (synthetic); none of it is anyone's
 writing (DEC-183, DEC-184).
 """
@@ -168,6 +175,63 @@ class SecurityPassTest(PacketTestCase):
         code, out, err = self.run_cli("review", "null.packet.json")
         self.assertNotIn("Traceback", out + err)
         self.assertTrue((self.home / "null.review.html").exists())
+
+
+class WriteErrorTest(PacketTestCase):
+    """A folder that can't be written is one ``error:`` line and exit 1."""
+
+    run_cli = SecurityPassTest.run_cli
+
+    def assert_error_line(self, result, starts):
+        code, out, err = result
+        self.assertEqual(code, 1)
+        self.assertNotIn("Traceback", out + err)
+        self.assertEqual(err.count("\n"), 1, err)
+        self.assertTrue(err.startswith(f"error: {starts}"), err)
+
+    def write_spec(self):
+        self.write("spec.json", json.dumps(SPEC))
+
+    def read_only(self, folder):
+        """Make ``folder`` unwritable, or skip where permissions don't bind
+        (root ignores them; Windows ignores the mode bits on folders)."""
+        if os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0):
+            self.skipTest("folder permissions don't bind here (Windows or root)")
+        folder.chmod(0o555)
+        # tearDown's TemporaryDirectory.cleanup copes with the mode and may
+        # already have removed the folder by the time this cleanup runs.
+        self.addCleanup(lambda: folder.exists() and folder.chmod(0o755))
+
+    def test_build_with_a_file_named_packets_is_an_error_line(self):
+        self.write_spec()
+        self.write("packets", "a file, not a folder\n")
+        self.assert_error_line(self.run_cli("build", "original.txt", "edition.txt", "spec.json", "--stem", "s"),
+                               "packets exists but is not a folder")
+
+    def test_build_into_a_read_only_packets_folder_is_an_error_line(self):
+        self.write_spec()
+        (self.home / "packets").mkdir()
+        self.read_only(self.home / "packets")
+        self.assert_error_line(self.run_cli("build", "original.txt", "edition.txt", "spec.json", "--stem", "s"),
+                               "can't write s.packet.json")
+        self.assertEqual(list((self.home / "packets").iterdir()), [])
+
+    def _built_packet(self):
+        self.write_spec()
+        code, out, err = self.run_cli("build", "original.txt", "edition.txt", "spec.json", "--stem", "s")
+        self.assertEqual(code, 0, err)
+        return "packets/s.packet.json"
+
+    def test_decide_in_a_read_only_folder_is_an_error_line(self):
+        packet = self._built_packet()
+        self.read_only(self.home)
+        self.assert_error_line(self.run_cli("decide", packet, "accept", "--by", "tester"),
+                               "can't open decisions.jsonl")
+
+    def test_review_in_a_read_only_folder_is_an_error_line(self):
+        packet = self._built_packet()
+        self.read_only(self.home / "packets")
+        self.assert_error_line(self.run_cli("review", packet), "can't write s.review.html")
 
 
 if __name__ == "__main__":

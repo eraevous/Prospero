@@ -39,7 +39,7 @@ from pathlib import Path
 # so a word the checks accept is never marked unlabelled here (Codex on #10).
 from .build import (_CHANGE_FIELDS, KINDS, PACKET_FORMAT, QUOTE_RE, _covered, _differences, _find_span,
                     _type_name, sha256)
-from .record import PACKET_SUFFIX, RecordError, _outside_repo
+from .record import PACKET_SUFFIX, RecordError, _make_folder, _outside_repo
 from .sources import Source, SourceError
 
 # The first line of every sheet. write_review only replaces a file that starts
@@ -399,19 +399,24 @@ def write_review(packet_text: str, packet_name: str, out_dir: str | Path, source
             raise RecordError(f"{path.name} exists and can't be read: {error}") from error
         if first != MARKER or not path.is_file():
             raise RecordError(f"{path.name} exists and is not a review sheet; refusing to replace it")
-    folder.mkdir(parents=True, exist_ok=True)
+    _make_folder(folder)
     # Write a temporary file and rename it over the old sheet: the rename
     # replaces a name, so a link planted at the target is not followed.
     # mkstemp creates a new, uniquely named file exclusively, so no existing
     # file (an input text with a ".tmp" name, say) is ever deleted or reused
     # (Codex on #10). Only the file made here is removed on failure.
-    fd, tmp_name = tempfile.mkstemp(dir=folder, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        fd, tmp_name = tempfile.mkstemp(dir=folder, prefix=f".{path.name}.", suffix=".tmp")
+    except OSError as error:  # no permission to write in the folder
+        raise RecordError(f"can't write {path.name}: {error.strerror or error}") from error
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(page)
         os.replace(tmp_name, path)
-    except BaseException:
+    except BaseException as error:
         if os.path.lexists(tmp_name):
             os.unlink(tmp_name)
+        if isinstance(error, OSError):
+            raise RecordError(f"can't write {path.name}: {error.strerror or error}") from error
         raise
     return path
