@@ -42,4 +42,6 @@ python3 -m aec edges . -o .aec/edges.jsonl
 python3 -m aec check .aec/records.jsonl --edges .aec/edges.jsonl
 ```
 
-`.claude/settings.json` runs the same check after every edit made by Claude Code; CI runs it on every push.
+`.claude/settings.json` runs the same check after every edit made by Claude Code. In CI the shared `kairos`
+workflow (`.github/workflows/kairos.yml`, from eraevous/Lydian; DEC-256) runs it on every pull request and every
+push to `main`.
