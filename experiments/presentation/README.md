@@ -23,8 +23,13 @@ browser are **external tools for the experiment**, not project dependencies (not
 - **Arm B: done.** Render check passes on all 6 outputs (3 pages, 3 Substack bodies). Negative control:
   pandoc with smart punctuation *on* fails the check (curly quote at character 13 of the body and notes),
   so the check sees the rewriting it is meant to catch. Tests: `tests/test_presentation_render_check.py`.
-- **Arm A (Quarto): not run yet.** This wake's attempt to download Quarto 1.6.42 from GitHub releases was refused
-  by the session's permission check, so no Quarto output exists. Quarto is not otherwise installed here.
+- **Arm A (Quarto): not run yet; waiting on Zach.** 2026-11-19: the download of Quarto 1.6.42 from GitHub releases
+  was refused by the session's permission check. 2026-11-20: Zach approved the download as an external tool for this
+  experiment (not a Prospero dependency). 2026-11-23: the download went through, but the scheduled run's permission
+  check refused unpacking and running it, and no one was present to approve that step, so it was not routed around.
+  No Quarto output exists. Zach's options (handoff HO-PRO-20261118-FMYG, in Kairos's records): approve the step in a
+  session he is watching; run `quarto render` on the three inputs himself and put the HTML in `out/arm_a/`; or drop
+  Arm A and decide on Arm B alone.
 - **Substack: prepared, waiting on Zach** (`SUBSTACK_CHECKLIST.md`).
 
 ## Arm B results
