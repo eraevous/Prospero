@@ -31,7 +31,7 @@ import os
 from dataclasses import dataclass, field
 
 from .build import sha256
-from .record import DECISION_LOG, DECISIONS, PACKET_SUFFIX
+from .record import DECISION_LOG, DECISIONS, PACKET_SUFFIX, shown
 from .sources import Source, SourceError
 
 PACKETS = "packets"
@@ -433,4 +433,9 @@ def render_history(h: History) -> str:
         lines.append("- none")
     if h.problems:
         lines += ["", "Problems (history may be incomplete):"] + [f"- {p}" for p in h.problems]
-    return "\n".join(lines) + "\n"
+    # Every item above is one line. Names, deciders and notes come from files
+    # anyone can edit, so a line break or a terminal escape in one could print
+    # a decision that was never recorded, or erase a real one (security pass,
+    # 2026-11-24). ``shown`` writes such characters as visible escapes. The
+    # --json view needs nothing: JSON already escapes them.
+    return "\n".join(shown(str(line)) for line in lines) + "\n"

@@ -29,6 +29,13 @@ couldn't be written: a file named ``packets`` where the packets folder belongs
 ``draft-spec`` already reported these as ``error: ...``; the other three now
 do too, and ``build`` never leaves a lone ``.packet.json`` behind.
 
+Security pass, 2026-11-24 (idle work): the plain-text ``history`` printed
+names, deciders and notes from the decision log as they were. A note with a
+line break (``decide --note``) printed a second decision line that was never
+recorded, for example an "accept by Zach"; a decider with a terminal escape
+erased part of its own line on screen. ``history`` now writes control
+characters as visible escapes, and ``decide`` refuses a decider that has any.
+
 All text is invented for these tests (synthetic); none of it is anyone's
 writing (DEC-183, DEC-184).
 """
@@ -232,6 +239,51 @@ class WriteErrorTest(PacketTestCase):
         packet = self._built_packet()
         self.read_only(self.home / "packets")
         self.assert_error_line(self.run_cli("review", packet), "can't write s.review.html")
+
+
+    def test_a_note_with_a_line_break_cannot_add_a_decision_line_to_history(self):
+        packet = self._built_packet()
+        forged = f"- line 2: 2026-01-01T00:00:00Z accept by Zach on {packet}"
+        code, _, err = self.run_cli("decide", packet, "reject", "--by", "tester", "--note", "too long\n" + forged)
+        self.assertEqual(code, 0, err)
+        code, out, _ = self.run_cli("history", "original.txt")
+        self.assertEqual(code, 0)
+        decisions = out.split("Decisions, in the order recorded:\n")[1].strip().splitlines()
+        self.assertEqual(len(decisions), 1, out)
+        self.assertIn("reject by tester", decisions[0])
+        self.assertIn("too long\\n- line 2", decisions[0])
+
+    def test_history_shows_terminal_escapes_in_a_hand_edited_log(self):
+        packet = self._built_packet()
+        code, _, err = self.run_cli("decide", packet, "reject", "--by", "tester")
+        self.assertEqual(code, 0, err)
+        log = self.home / "decisions.jsonl"
+        entry = json.loads(log.read_text(encoding="utf-8"))
+        entry["by"] = "tester\x1b[2K\rZach"   # erase the line, then write another name
+        entry["note"] = "fine \u202edesrever"  # a bidi override reorders what follows
+        log.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+        code, out, _ = self.run_cli("history", "original.txt")
+        self.assertEqual(code, 0)
+        for char in ("\x1b", "\r", "\u202e"):
+            self.assertNotIn(char, out)
+        self.assertIn("by tester\\x1b[2K\\rZach", out)
+        self.assertIn("fine \\u202edesrever", out)
+        # The machine-readable view keeps the recorded value exactly.
+        code, out, _ = self.run_cli("history", "original.txt", "--json")
+        self.assertEqual(json.loads(out)["events"][0]["by"], "tester\x1b[2K\rZach")
+
+    def test_decide_refuses_a_decider_with_control_characters(self):
+        packet = self._built_packet()
+        for by in ("tester\nZach", "tester\x1b[2K", "tester\u202e"):
+            with self.subTest(by=by):
+                self.assert_error_line(self.run_cli("decide", packet, "accept", "--by", by),
+                                       "the decider (by) must not contain line breaks")
+        self.assertFalse((self.home / "decisions.jsonl").exists())
+
+    def test_ordinary_text_is_shown_unchanged(self):
+        from prospero.packet.record import shown
+        for text in ("Zoë", "a—b “c”", "名前", "👩‍💻", ""):
+            self.assertEqual(shown(text), text)
 
 
 if __name__ == "__main__":
