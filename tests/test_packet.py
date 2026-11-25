@@ -210,6 +210,16 @@ class SourceTest(PacketTestCase):
         with self.assertRaises(SourceError):
             self.source.read(str(Path(self._tmp.name) / "outside.txt"))
 
+    def test_contained_is_the_one_containment_test(self):
+        # A missing tail resolves as written (an output folder may not exist yet).
+        self.assertEqual(self.source.contained("new/folder"), self.source.root / "new" / "folder")
+        self.assertEqual(self.source.contained(self.source.root), self.source.root)
+        with self.assertRaisesRegex(SourceError, r"'\.\./x' is outside the source folder"):
+            self.source.contained("../x")
+        # The message names the path as the person spelled it, and the folder by role.
+        with self.assertRaisesRegex(SourceError, r"'out/\.\./\.\./x' is outside the content folder"):
+            self.source.contained(self.source.root / ".." / "x", "out/../../x", "content folder")
+
     def test_content_home_has_no_default(self):
         saved = os.environ.pop("PROSPERO_HOME", None)
         try:

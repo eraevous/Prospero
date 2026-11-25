@@ -64,11 +64,27 @@ class FolderSource(Source):
         # than its full path, so packets don't leak where content lives on disk.
         self.name = label or self.root.name
 
+    def contained(self, name: str | os.PathLike, given: str | None = None,
+                  where: str = "source folder") -> Path:
+        """Resolve ``name`` (relative to the folder, or absolute) and return
+        the real path, or raise ``SourceError`` if it leads out of the folder
+        (``..``, an absolute path elsewhere, a symlink pointing out) or can't
+        be resolved. Nothing need exist: a missing tail resolves as written.
+
+        This is the one containment test: ``path_of``, ``names`` and the
+        command line's output folders all go through it, so "stay inside the
+        folder you were given" is written once. ``given`` is how the person
+        spelled the path, for the message (default: ``name``); ``where`` names
+        the folder in it."""
+        given = str(name) if given is None else given
+        real = _resolve(self.root / name, given)
+        if real != self.root and self.root not in real.parents:
+            raise SourceError(f"{given!r} is outside the {where}")
+        return real
+
     def path_of(self, name: str) -> Path:
         """Return the real path for ``name``, or raise if it leaves the folder."""
-        candidate = _resolve(self.root / name, name)
-        if candidate != self.root and self.root not in candidate.parents:
-            raise SourceError(f"{name!r} is outside the source folder")
+        candidate = self.contained(name)
         if not candidate.is_file():
             raise SourceError(f"{name!r} not found in source {self.name!r}")
         return candidate
@@ -92,9 +108,7 @@ class FolderSource(Source):
             return []
         # Containment first, so a packets/ symlinked out of the source is
         # refused before anything there is listed (Copilot review on #9).
-        real = _resolve(base, folder)
-        if real != self.root and self.root not in real.parents:
-            raise SourceError(f"{folder!r} points outside the source folder")
+        real = self.contained(folder)
         if not real.is_dir():
             raise SourceError(f"{folder!r} exists but is not a folder (or is a broken link)")
         # os.listdir, not Path.glob: glob swallows a PermissionError and would
