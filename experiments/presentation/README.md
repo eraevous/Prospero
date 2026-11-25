@@ -2,7 +2,8 @@
 
 Author: claude:prospero#wake-20261119-00 · Reviewer: none yet · model=claude-opus-5-5 (configured; serving model may differ)
 
-A labelled experiment under DEC-200's build gate: presentation only, no prose changes. Quarto, Pandoc and a
+A labelled experiment under DEC-200's build gate (the decision that lets a labelled experiment be built on a plausible,
+explainable benefit before the benefit is shown): presentation only, no prose changes. Quarto, Pandoc and a
 browser are **external tools for the experiment**, not project dependencies (nothing here is imported by
 `prospero/`).
 
@@ -31,7 +32,7 @@ browser are **external tools for the experiment**, not project dependencies (not
 
 **Output quality** (screenshots): 18 px body at default zoom; measure 62ch ≈ 71 lowercase letters per desktop
 line (inside 60–75); ≈ 40 letters on a 390 px phone; no horizontal scroll at either width; dark mode follows the OS.
-Footnotes are end-of-document notes with back-links (the handoff allowed this instead of sidenotes).
+Footnotes are end-of-document notes with back-links (the handoff, the task record that asked for this experiment, allowed this instead of sidenotes).
 `text-wrap: pretty` and `hyphens: auto` are on; hyphenation is visible in the phone block quote.
 
 **Text fidelity:** PASS, all outputs. With smart punctuation off, what the author typed is what the reader
