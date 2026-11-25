@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,6 +25,40 @@ from .sources import Source
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DECISIONS = ("accept", "reject", "revise")
+
+# Characters that can rewrite what a terminal shows: line breaks, escape
+# sequences (which can erase or overwrite a line) and the bidirectional
+# overrides that reorder text. Text read from a record goes through
+# ``shown`` before it is printed one item per line (security pass, 2026-11-24).
+_BIDI_CONTROLS = set("\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+
+
+def _is_control(char: str) -> bool:
+    return unicodedata.category(char) in ("Cc", "Zl", "Zp") or char in _BIDI_CONTROLS
+
+
+def shown(text: str) -> str:
+    """``text`` with every control character written as a visible escape
+    (``\\n``, ``\\x1b``, ``\\u202e``), so a value from a record stays on
+    its own line and can't erase, overwrite or reorder what is printed
+    around it. Ordinary text, accents and emoji pass through unchanged."""
+    if not any(_is_control(char) for char in text):
+        return text
+    out = []
+    for char in text:
+        if not _is_control(char):
+            out.append(char)
+        elif char == "\n":
+            out.append("\\n")
+        elif char == "\r":
+            out.append("\\r")
+        elif char == "\t":
+            out.append("\\t")
+        elif ord(char) < 0x100:
+            out.append(f"\\x{ord(char):02x}")
+        else:
+            out.append(f"\\u{ord(char):04x}")
+    return "".join(out)
 DECISION_LOG = "decisions.jsonl"
 # A packet is written as <stem>.packet.json (and a .packet.md view). history
 # lists packets by this suffix and the review sheet strips it to name itself.
@@ -183,6 +218,10 @@ def record_decision(log_dir: str | Path, packet_dict: dict, source: Source, deci
         raise RecordError(f"decision must be one of {', '.join(DECISIONS)}")
     if not by.strip():
         raise RecordError("a decision needs a decider (by)")
+    if shown(by) != by:
+        # A decider is a name. A line break or an escape sequence in it could
+        # make history print another decider (security pass, 2026-11-24).
+        raise RecordError("the decider (by) must not contain line breaks or other control characters")
     original = packet_dict["original"]
     current = sha256(source.read(original["name"]))
     if current != original["sha256"]:
