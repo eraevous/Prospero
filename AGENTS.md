@@ -2,8 +2,9 @@
 
 ## Who decides
 
-- **Product direction, scope and purpose come from Zach.** Agents build what has been agreed with him and
-  recorded in a handoff or a decision. Anything else an agent suggests is a **proposal, not direction**:
+- **Product direction, scope and purpose come from Zach** (the project's owner). Agents build what has been agreed
+  with him and recorded in a handoff (the task record one agent hands to another) or a decision (an entry in Kairos's
+  decision log, cited as DEC-n, which works like an architecture decision record, ADR). Anything else an agent suggests is a **proposal, not direction**:
   write it up (pull request description, issue, or a proposed decision) and let Zach decide.
 - The purpose record `P0` in `.aec/records.jsonl` is a stub until Zach states the purpose in his own words.
   Do not fill it in for him.
